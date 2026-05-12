@@ -19,7 +19,7 @@ var staticFS embed.FS
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "3001"
+		port = "20265"
 	}
 
 	sub, _ := fs.Sub(staticFS, "static")

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { ArrowDown, ArrowUp, Clock3, Cpu, Flame, Gauge, HardDrive, Monitor, ServerCog, Thermometer, Timer, Database } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -18,26 +19,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-// ── Types ──────────────────────────────────────────────
+// ── Types (matching Go backend JSON) ───────────────────
 interface Stats {
-  cpu: { usage: number; cores: number; perCore: number[]; temperature: number | null };
+  cpu: { usage: number; cores: number; perCore: number[] };
   memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number; swapPercent: number };
-  disk: { fs: string; mount: string; size: number; used: number; available: number; percent: number }[];
-  diskIO: { read: number; write: number };
-  network: { interface: string; rx_sec: number; tx_sec: number };
-  uptime: number;
-  hostname: string;
-  platform: string;
-  arch: string;
-  kernel: string;
-  osName: string;
-  processes: {
-    total: number;
-    running: number;
-    sleeping: number;
-    top: { name: string; pid: number; cpu: number; mem: number }[];
-  };
-  timestamp: string;
+  disks: { device: string; mount: string; total: number; used: number; free: number; percent: number }[];
+  diskIO: { readBytes: number; writeBytes: number };
+  network: { interface: string; rxBytes: number; txBytes: number };
+  system: { hostname: string; os: string; arch: string; kernel: string; uptime: number };
+  topProcesses: { name: string; pid: number; cpu: number; mem: number }[];
+  history: { cpu: number[]; memory: number[]; netRx: number[]; netTx: number[] };
+  authEnabled: boolean;
+  authenticated: boolean;
 }
 
 interface HistoryPoint {
@@ -177,19 +170,39 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
+  const prevNetRef = useRef<{ rx: number; tx: number; ts: number } | null>(null);
+
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch('/api/stats');
       if (!res.ok) return;
       const data: Stats = await res.json();
+
+      // Validate essential fields exist before setting state
+      if (!data?.memory || !data?.cpu || !data?.network || !data?.system) return;
+
       setStats(data);
       setLastUpdate(new Date());
+
+      // Calculate net rate from cumulative bytes
+      const now = Date.now();
+      const prev = prevNetRef.current;
+      let rxSec = 0, txSec = 0;
+      if (prev) {
+        const dt = (now - prev.ts) / 1000;
+        if (dt > 0) {
+          rxSec = Math.max(0, (data.network.rxBytes - prev.rx) / dt);
+          txSec = Math.max(0, (data.network.txBytes - prev.tx) / dt);
+        }
+      }
+      prevNetRef.current = { rx: data.network.rxBytes, tx: data.network.txBytes, ts: now };
+
       setHistory(prev => {
         const p: HistoryPoint = {
           cpu: data.cpu.usage,
           mem: data.memory.percent,
-          netIn: data.network.rx_sec,
-          netOut: data.network.tx_sec,
+          netIn: rxSec,
+          netOut: txSec,
           time: new Date().toLocaleTimeString('th-TH', { hour12: false }),
         };
         const next = [...prev, p];
@@ -211,7 +224,7 @@ export default function Dashboard() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="inline-block w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-muted-foreground text-lg">Loading VPS Stats…</p>
+          <p className="text-muted-foreground text-lg">Loading VPS Stats...</p>
         </div>
       </div>
     );
@@ -230,14 +243,14 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center text-lg">
-              🖥️
+              <Monitor className="h-5 w-5 text-white" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-tight text-white">
                 VPS Monitor
               </h1>
               <p className="text-xs text-muted-foreground">
-                {stats.hostname} · {stats.osName} {stats.arch} · Kernel {stats.kernel}
+                {stats.system.hostname} | {stats.system.os} {stats.system.arch} | Kernel {stats.system.kernel}
               </p>
             </div>
           </div>
@@ -257,14 +270,14 @@ export default function Dashboard() {
         {/* ── Top quick stats ─────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { icon: '⏱️', label: 'Uptime', value: formatUptime(stats.uptime), bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
-            { icon: '⚙️', label: 'Processes', value: String(stats.processes.total), sub: `${stats.processes.running} running`, bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
-            { icon: '💾', label: 'Swap', value: stats.memory.swapTotal > 0 ? `${stats.memory.swapPercent}%` : 'None', sub: stats.memory.swapTotal > 0 ? formatBytes(stats.memory.swapUsed) : undefined, bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
-            { icon: '🌡️', label: 'CPU Temp', value: stats.cpu.temperature ? `${stats.cpu.temperature}°C` : 'N/A', bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
-          ].map((item, i) => (
+            { Icon: Clock3, label: 'Uptime', value: formatUptime(stats.system.uptime), bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
+            { Icon: ServerCog, label: 'Processes', value: String(stats.topProcesses.length), sub: 'top procs', bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
+            { Icon: Database, label: 'Swap', value: stats.memory.swapTotal > 0 ? `${stats.memory.swapPercent}%` : 'None', sub: stats.memory.swapTotal > 0 ? formatBytes(stats.memory.swapUsed) : undefined, bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
+            { Icon: Thermometer, label: 'CPU Temp', value: 'N/A', bg: 'from-white/5 to-white/[0.02]', ring: 'ring-white/10' },
+          ].map(({ Icon, ...item }, i) => (
             <Card key={i} className={`bg-gradient-to-br ${item.bg} ring-1 ${item.ring} fade-in-up`} style={{ animationDelay: `${i * 0.05}s` }}>
               <CardContent className="flex items-center gap-3 p-4">
-                <span className="text-2xl">{item.icon}</span>
+                <Icon className="h-6 w-6 text-white/80 shrink-0" aria-hidden="true" />
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">{item.label}</p>
                   <p className="text-xl font-bold tracking-tight">{item.value}</p>
@@ -367,20 +380,20 @@ export default function Dashboard() {
             <CardContent className="pt-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">⬇️ Download</p>
-                  <p className="text-xl font-bold text-emerald-400">{formatBytesPerSec(stats.network.rx_sec)}</p>
+                  <p className="text-xs text-muted-foreground mb-1 inline-flex items-center justify-center gap-1"><ArrowDown className="h-3 w-3" aria-hidden="true" /> Download</p>
+                  <p className="text-xl font-bold text-emerald-400">{history.length > 0 ? formatBytesPerSec(history[history.length-1].netIn) : '0 B/s'}</p>
                 </div>
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">⬆️ Upload</p>
-                  <p className="text-xl font-bold text-white">{formatBytesPerSec(stats.network.tx_sec)}</p>
+                  <p className="text-xs text-muted-foreground mb-1 inline-flex items-center justify-center gap-1"><ArrowUp className="h-3 w-3" aria-hidden="true" /> Upload</p>
+                  <p className="text-xl font-bold text-white">{history.length > 0 ? formatBytesPerSec(history[history.length-1].netOut) : '0 B/s'}</p>
                 </div>
               </div>
               <div className="mt-4">
-                <p className="text-xs text-muted-foreground mb-1">⬇️ Download History</p>
+                <p className="text-xs text-muted-foreground mb-1 inline-flex items-center gap-1"><ArrowDown className="h-3 w-3" aria-hidden="true" /> Download History</p>
                 <Sparkline data={netInH} color="#10b981" height={50} />
               </div>
               <div className="mt-3">
-                <p className="text-xs text-muted-foreground mb-1">⬆️ Upload History</p>
+                <p className="text-xs text-muted-foreground mb-1 inline-flex items-center gap-1"><ArrowUp className="h-3 w-3" aria-hidden="true" /> Upload History</p>
                 <Sparkline data={netOutH} color="#ffffff" height={50} />
               </div>
             </CardContent>
@@ -393,15 +406,15 @@ export default function Dashboard() {
           {/* Disk */}
           <Card className="fade-in-up" style={{ animationDelay: '0.4s' }}>
             <CardHeader>
-              <CardTitle className="text-sm uppercase tracking-wider">💿 Disk Usage</CardTitle>
+              <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><HardDrive className="h-4 w-4" aria-hidden="true" /> Disk Usage</CardTitle>
               <CardDescription>Filesystem storage allocation</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {stats.disk.map((d, i) => (
+              {stats.disks.map((d, i) => (
                 <div key={i} className="space-y-2">
-                  <DiskBar label={`${d.mount} (${d.fs})`} value={d.used} max={d.size} />
+                  <DiskBar label={`${d.mount} (${d.device})`} value={d.used} max={d.total} />
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Available: {formatBytes(d.available)}</span>
+                    <span>Available: {formatBytes(d.free)}</span>
                     <span className={getStatusColor(d.percent)}>{d.percent}% used</span>
                   </div>
                 </div>
@@ -409,12 +422,12 @@ export default function Dashboard() {
               {stats.diskIO && (
                 <div className="pt-3 mt-2 border-t border-border grid grid-cols-2 gap-3 text-center">
                   <div>
-                    <p className="text-xs text-muted-foreground">Read</p>
-                    <p className="text-sm font-semibold text-white">{formatBytesPerSec(stats.diskIO.read)}</p>
+                    <p className="text-xs text-muted-foreground">Read (total)</p>
+                    <p className="text-sm font-semibold text-white">{formatBytes(stats.diskIO.readBytes)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Write</p>
-                    <p className="text-sm font-semibold text-emerald-400">{formatBytesPerSec(stats.diskIO.write)}</p>
+                    <p className="text-xs text-muted-foreground">Write (total)</p>
+                    <p className="text-sm font-semibold text-emerald-400">{formatBytes(stats.diskIO.writeBytes)}</p>
                   </div>
                 </div>
               )}
@@ -426,10 +439,10 @@ export default function Dashboard() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm uppercase tracking-wider">🔥 Top Processes</CardTitle>
+                  <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><Flame className="h-4 w-4" aria-hidden="true" /> Top Processes</CardTitle>
                   <CardDescription>By CPU usage</CardDescription>
                 </div>
-                <Badge variant="secondary">{stats.processes.total} total</Badge>
+                <Badge variant="secondary">{stats.topProcesses.length} shown</Badge>
               </div>
             </CardHeader>
             <CardContent>
@@ -443,7 +456,7 @@ export default function Dashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {stats.processes.top.map((p, i) => (
+                  {stats.topProcesses.map((p, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-mono text-xs">{p.name}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">{p.pid}</TableCell>
@@ -463,7 +476,7 @@ export default function Dashboard() {
 
         {/* ── Footer ─────────────────────────────────── */}
         <p className="text-center text-xs text-muted-foreground/50 pt-4 pb-2">
-          VPS Monitor Dashboard · Auto-refresh 2s · {stats.hostname}
+          VPS Monitor Dashboard | Auto-refresh 2s | {stats.system.hostname}
         </p>
       </div>
     </div>

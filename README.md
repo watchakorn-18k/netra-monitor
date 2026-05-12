@@ -25,7 +25,7 @@ Real-time VPS resource monitoring dashboard — Go backend + Next.js frontend, s
 docker run -d \
   --name netra-monitor \
   --restart unless-stopped \
-  -p 3001:3001 \
+  -p 20265:20265 \
   -e AUTH_PASSWORD=mys3cret \
   --cap-add SYS_PTRACE \
   ghcr.io/watchakorn-18k/netra-monitor:latest
@@ -38,7 +38,7 @@ make build
 AUTH_PASSWORD=mys3cret ./netra-monitor
 ```
 
-Open `http://your-vps-ip:3001`
+Open `http://your-vps-ip:20265`
 
 ## Auth & Kill Process
 
@@ -88,7 +88,7 @@ make docker         # docker build
 
 | Name | Default | Description |
 |------|---------|-------------|
-| `PORT` | `3001` | HTTP listen port |
+| `PORT` | `20265` | HTTP listen port |
 | `AUTH_PASSWORD` | (empty) | Password for kill access |
 
 ## Performance

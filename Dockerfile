@@ -20,7 +20,7 @@ COPY . .
 
 # Copy built frontend into Go embed path
 COPY --from=frontend /build/out ./static/
-RUN mkdir -p cmd/server/static && cp static/index.html cmd/server/static/
+RUN mkdir -p cmd/server/static && cp -r static/* cmd/server/static/
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /netra-monitor ./cmd/server/
 
@@ -34,9 +34,9 @@ RUN apk add --no-cache ca-certificates tzdata && \
 COPY --from=backend /netra-monitor /usr/local/bin/netra-monitor
 
 USER app
-EXPOSE 3001
+EXPOSE 20265
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -qO- http://localhost:3001/api/stats || exit 1
+  CMD wget -qO- http://localhost:20265/api/stats || exit 1
 
 ENTRYPOINT ["netra-monitor"]
