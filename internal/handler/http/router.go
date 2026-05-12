@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 
-	"netra-monitor/internal/usecase/monitor"
+	"netra-monitor/internal/service/monitor"
 )
 
 // SetupRouter configures all routes and returns an http.Handler.

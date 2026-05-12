@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"netra-monitor/internal/usecase/monitor"
+	"netra-monitor/internal/service/monitor"
 )
 
 const cookieName = "netra_session"

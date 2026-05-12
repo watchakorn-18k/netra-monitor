@@ -3,7 +3,7 @@ package monitor
 import (
 	"sync"
 
-	"netra-monitor/internal/domain"
+	"netra-monitor/internal/model"
 )
 
 // Monitor is the use case that orchestrates system metric collection.

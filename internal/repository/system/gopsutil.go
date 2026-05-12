@@ -13,7 +13,7 @@ import (
 	psnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 
-	"netra-monitor/internal/domain"
+	"netra-monitor/internal/model"
 )
 
 // gopsutilRepository implements domain.SystemRepository using gopsutil.

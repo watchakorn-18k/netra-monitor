@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 
-	deliveryHTTP "netra-monitor/internal/delivery/http"
+	deliveryHTTP "netra-monitor/internal/handler/http"
 	"netra-monitor/internal/repository/system"
-	"netra-monitor/internal/usecase/monitor"
+	"netra-monitor/internal/service/monitor"
 )
 
 //go:embed all:static
