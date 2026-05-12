@@ -27,7 +27,7 @@ interface Stats {
   diskIO: { readBytes: number; writeBytes: number };
   network: { interface: string; rxBytes: number; txBytes: number };
   system: { hostname: string; os: string; arch: string; kernel: string; uptime: number };
-  topProcesses: { name: string; pid: number; cpu: number; mem: number }[];
+  topProcesses: { name: string; service?: string; pid: number; cpu: number; mem: number }[];
   history: { cpu: number[]; memory: number[]; netRx: number[]; netTx: number[] };
   authEnabled: boolean;
   authenticated: boolean;
@@ -458,7 +458,14 @@ export default function Dashboard() {
                 <TableBody>
                   {stats.topProcesses.map((p, i) => (
                     <TableRow key={i}>
-                      <TableCell className="font-mono text-xs">{p.name}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <div>{p.name}</div>
+                        {p.service && (
+                          <div className="mt-1 inline-flex max-w-[180px] truncate rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-muted-foreground" title={p.service}>
+                            {p.service}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-muted-foreground text-xs">{p.pid}</TableCell>
                       <TableCell className={`text-right font-mono text-xs ${getStatusColor(p.cpu)}`}>
                         {p.cpu}%

@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV === "development";
 
 const nextConfig: NextConfig = {
+  // Keep Turbopack rooted at frontend/ when repo has parent lockfiles
+  turbopack: {
+    root: __dirname,
+  },
+
   // Static export only for production build
   ...(isDev ? {} : { output: "export", distDir: "out" }),
 

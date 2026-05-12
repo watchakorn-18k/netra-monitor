@@ -64,10 +64,11 @@ type SystemInfo struct {
 
 // ProcessInfo represents a running process summary.
 type ProcessInfo struct {
-	Name string  `json:"name"`
-	PID  int32   `json:"pid"`
-	CPU  float64 `json:"cpu"`
-	Mem  float32 `json:"mem"`
+	Name    string  `json:"name"`
+	Service string  `json:"service,omitempty"`
+	PID     int32   `json:"pid"`
+	CPU     float64 `json:"cpu"`
+	Mem     float32 `json:"mem"`
 }
 
 // HistoryData holds time-series data for sparkline charts.

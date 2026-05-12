@@ -2,8 +2,11 @@ package system
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -79,7 +82,7 @@ func (r *gopsutilRepository) GetDisks() ([]domain.DiskStats, error) {
 		return nil, err
 	}
 
-	var result []domain.DiskStats
+	result := make([]domain.DiskStats, 0)
 	for _, p := range partitions {
 		usage, err := disk.Usage(p.Mountpoint)
 		if err != nil || usage == nil {
@@ -162,10 +165,11 @@ func (r *gopsutilRepository) GetTopProcesses(limit int) ([]domain.ProcessInfo, e
 		cpuPct, _ := p.CPUPercent()
 		memPct, _ := p.MemoryPercent()
 		procs = append(procs, domain.ProcessInfo{
-			Name: name,
-			PID:  p.Pid,
-			CPU:  roundF(cpuPct, 1),
-			Mem:  roundF32(memPct, 1),
+			Name:    name,
+			Service: detectSystemdUnit(p.Pid),
+			PID:     p.Pid,
+			CPU:     roundF(cpuPct, 1),
+			Mem:     roundF32(memPct, 1),
 		})
 	}
 
@@ -189,6 +193,46 @@ func (r *gopsutilRepository) KillProcess(pid int32) error {
 }
 
 // --- helpers ---
+
+var systemdUnitRE = regexp.MustCompile(`([A-Za-z0-9_.@:+\\-]+\.(service|scope|slice))`)
+
+func detectSystemdUnit(pid int32) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	if err != nil {
+		return ""
+	}
+
+	var fallback string
+	for _, line := range strings.Split(string(data), "\n") {
+		matches := systemdUnitRE.FindAllString(line, -1)
+		for i := len(matches) - 1; i >= 0; i-- {
+			unit := decodeSystemdUnit(matches[i])
+			if unit == "" || strings.HasSuffix(unit, ".slice") || isLoginSessionScope(unit) {
+				continue
+			}
+			if strings.HasSuffix(unit, ".service") {
+				return unit
+			}
+			if fallback == "" {
+				fallback = unit
+			}
+		}
+	}
+
+	return fallback
+}
+
+func isLoginSessionScope(unit string) bool {
+	return strings.HasPrefix(unit, "session-") || strings.HasPrefix(unit, "user@")
+}
+
+func decodeSystemdUnit(unit string) string {
+	unit = strings.ReplaceAll(unit, `\\x2d`, "-")
+	unit = strings.ReplaceAll(unit, `\\x2e`, ".")
+	unit = strings.ReplaceAll(unit, `\\x40`, "@")
+	unit = strings.ReplaceAll(unit, `\\x5f`, "_")
+	return unit
+}
 
 func roundF(v float64, places int) float64 {
 	pow := 1.0
