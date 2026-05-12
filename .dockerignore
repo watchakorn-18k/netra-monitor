@@ -2,6 +2,7 @@ netra-monitor
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+static/
 cmd/server/static/
 .git/
 .gitignore

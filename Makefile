@@ -1,40 +1,39 @@
-.PHONY: build run clean dev frontend static docker
+.PHONY: build run clean dev frontend docker
 
 # ═══════════════════════════════════════════════════
 # Netra Monitor — Build System
 #
 # Source files:
-#   frontend/     ← Next.js source (edit UI here)
-#   static/       ← Built frontend (committed, source of truth for Go embed)
-#   cmd/server/   ← Go entry point
-#   internal/     ← Go clean architecture
+#   frontend/          ← Next.js source (edit UI here)
+#   cmd/server/static/ ← Generated frontend embed dir (ignored)
+#   cmd/server/        ← Go entry point
+#   internal/          ← Go clean architecture
 #
 # Build flow:
-#   frontend/ → npm run build → static/ → go build → netra-monitor binary
+#   frontend/ → npm run build → cmd/server/static/ → go build
 # ═══════════════════════════════════════════════════
 
+GO ?= $(HOME)/go/bin/go
+
 # Build everything: frontend + Go binary
-build: static
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o netra-monitor ./cmd/server/
+build: frontend
+	CGO_ENABLED=0 $(GO) build -ldflags="-s -w" -o netra-monitor ./cmd/server/
 
-# Build frontend from Next.js source, output to static/
+# Build frontend directly into Go embed path
 frontend:
-	cd frontend && npm install && npm run build
-	rm -rf static/*
-	cp -r frontend/out/* static/
+	cd frontend && npm ci && npm run build
+	rm -rf cmd/server/static
+	mkdir -p cmd/server/static
+	cp -r frontend/out/* cmd/server/static/
 
-# Copy static/ to Go embed path (used by both build targets)
-static:
-	@mkdir -p cmd/server/static
-	@cp static/index.html cmd/server/static/index.html 2>/dev/null || true
-
-# Build and run
+# Build and run production binary (default :20265)
 run: build
 	./netra-monitor
 
-# Dev mode (no auth)
-dev: build
-	./netra-monitor
+# Dev mode: frontend dev server still runs separately on :3000
+# Backend API uses :3001 for Next.js rewrites.
+dev:
+	PORT=3001 $(GO) run ./cmd/server
 
 # Clean all build artifacts
 clean:

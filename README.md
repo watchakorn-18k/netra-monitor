@@ -61,7 +61,7 @@ Clean Architecture (Go)
 │ ├── usecase/monitor/        ← Business logic│
 │ └── delivery/http/          ← HTTP + Auth   │
 │ frontend/                   ← Next.js UI    │
-│ static/                     ← Built frontend│
+│ cmd/server/static/         ← Generated frontend embed│
 └─────────────────────────────────────────────┘
 ```
 
@@ -71,9 +71,23 @@ Clean Architecture (Go)
 # Requires Go 1.24+ and Node.js 22+
 make build          # build frontend + Go binary
 make run            # build and run
-make frontend       # build frontend only
+make frontend       # build frontend into cmd/server/static/
 make docker         # docker build
 ```
+
+
+## Development
+
+```bash
+# terminal 1: backend API for Next.js rewrites
+PORT=3001 $HOME/go/bin/go run ./cmd/server
+
+# terminal 2: frontend dev server
+cd frontend
+npx next dev --port 3000 --hostname 0.0.0.0
+```
+
+Open `http://your-vps-ip:3000` for dev. Production binary defaults to port `20265`.
 
 ## API
 

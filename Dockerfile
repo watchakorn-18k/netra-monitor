@@ -19,8 +19,7 @@ RUN go mod download
 COPY . .
 
 # Copy built frontend into Go embed path
-COPY --from=frontend /build/out ./static/
-RUN mkdir -p cmd/server/static && cp -r static/* cmd/server/static/
+COPY --from=frontend /build/out ./cmd/server/static/
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /netra-monitor ./cmd/server/
 

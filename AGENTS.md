@@ -3,35 +3,27 @@
 ## Architecture
 
 ```
-frontend/          ← Next.js source (edit UI here)
-  src/app/page.tsx ← Main dashboard component
-static/            ← Built frontend (Go embed source of truth)
-cmd/server/        ← Go entry point (embeds static/)
-internal/          ← Go clean architecture (handler, service, repository, model)
+frontend/              ← Next.js source (edit UI here)
+  src/app/page.tsx     ← Main dashboard component
+cmd/server/static/     ← Generated frontend embed dir (ignored)
+cmd/server/            ← Go entry point (embeds cmd/server/static/)
+internal/              ← Go clean architecture (handler, service, repository, model)
 ```
 
 ## Build Flow
 
 ```
-frontend/ → npm run build → static/ → go build → netra-monitor binary
+frontend/ → npm run build → cmd/server/static/ → go build → netra-monitor binary
 ```
 
-**IMPORTANT: After ANY change to `frontend/` files, always rebuild and deploy to `static/`:**
+**IMPORTANT: After ANY change to `frontend/` files, always rebuild before production build/commit:**
 
 ```bash
-cd frontend && npm run build
-rm -rf ../static/*
-cp -r out/* ../static/
+make frontend   # builds Next.js → cmd/server/static/
+make build      # frontend + go build → netra-monitor binary
 ```
 
-Or use Makefile:
-
-```bash
-make frontend   # builds Next.js → copies to static/
-make build       # frontend + go build → netra-monitor binary
-```
-
-**Never skip this step.** The Go binary serves files from `static/` via embed. Changes to `frontend/` won't take effect in production until rebuilt and copied.
+`static/` root is legacy and ignored. Do not edit or commit it. Dockerfile builds frontend itself and copies `frontend/out/*` directly into `cmd/server/static/` before Go build.
 
 ## Dev Mode
 
@@ -39,7 +31,7 @@ make build       # frontend + go build → netra-monitor binary
 - Go backend dev: `PORT=3001 $HOME/go/bin/go run ./cmd/server` (serves API on :3001)
 - Next.js proxies `/api/*` → `localhost:3001` via `next.config.ts` rewrites in dev
 - Production Go server default port: `20265` (`PORT` can override)
-- After dev changes are verified, **always run `make frontend`** before committing
+- After dev changes are verified, **always run `make build`** before committing production changes
 
 ## API
 
@@ -50,10 +42,11 @@ make build       # frontend + go build → netra-monitor binary
 
 ## Key Rules
 
-1. **Always rebuild after frontend changes** — `make frontend` or manual build+copy
-2. **Validate API data before use** — Check nested fields exist before accessing (e.g., `data?.memory?.total`)
-3. **Use `useRef` for mutable values in hooks** — Not `useState` for values that shouldn't trigger re-renders
-4. **Dev frontend port**: `3000`
-5. **Dev backend port**: `3001`
-6. **Production default port**: `20265`
-7. **Go binary path**: `$HOME/go/bin/go` (not in default PATH)
+1. **Always rebuild after frontend changes** — `make build` for production-ready binary
+2. **Do not commit generated root `static/`** — it is ignored legacy output
+3. **Validate API data before use** — Check nested fields exist before accessing (e.g., `data?.memory?.total`)
+4. **Use `useRef` for mutable values in hooks** — Not `useState` for values that shouldn't trigger re-renders
+5. **Dev frontend port**: `3000`
+6. **Dev backend port**: `3001`
+7. **Production default port**: `20265`
+8. **Go binary path**: `$HOME/go/bin/go` (not in default PATH)
