@@ -28,9 +28,13 @@ type Handler struct {
 
 // NewHandler creates a new HTTP handler.
 func NewHandler(m *monitor.Monitor) *Handler {
+	password := os.Getenv("AUTH_PASSWORD")
+	if password == "" {
+		password = "123456"
+	}
 	h := &Handler{
 		monitor:  m,
-		password: os.Getenv("AUTH_PASSWORD"),
+		password: password,
 	}
 	h.authKey = make([]byte, 32)
 	rand.Read(h.authKey)
@@ -72,6 +76,9 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	resp["network"] = stats.Network
 	resp["system"] = stats.System
 	resp["topProcesses"] = stats.TopProcs
+	resp["topMemory"] = stats.TopMem
+	resp["containers"] = stats.Containers
+	resp["images"] = stats.Images
 	resp["history"] = stats.History
 	resp["authEnabled"] = h.AuthEnabled()
 	resp["authenticated"] = h.Authenticated(r)
@@ -144,6 +151,93 @@ func (h *Handler) KillProcess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]interface{}{"ok": true, "pid": pid})
+}
+
+// ── POST /api/restart/{pid} ──────────────────────────
+
+func (h *Handler) RestartProcess(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	pidStr := strings.TrimPrefix(r.URL.Path, "/api/restart/")
+	pid, err := strconv.ParseInt(pidStr, 10, 32)
+	if err != nil {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "invalid pid"})
+		return
+	}
+
+	if err := h.monitor.Restart(int32(pid)); err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "pid": pid})
+}
+
+// ── POST /api/container/{action}/{id} ──────────────────
+
+func (h *Handler) ContainerAction(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	// path: /api/container/{action}/{id}
+	path := strings.TrimPrefix(r.URL.Path, "/api/container/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "invalid path, use /api/container/{action}/{id}"})
+		return
+	}
+	action, id := parts[0], parts[1]
+
+	if err := h.monitor.ContainerAction(id, action); err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "action": action, "id": id})
+}
+
+// ── POST /api/image/remove/{id} ────────────────────────
+
+func (h *Handler) RemoveImage(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/api/image/remove/")
+	if id == "" {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "missing image id"})
+		return
+	}
+
+	if err := h.monitor.RemoveImage(id); err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "id": id})
+}
+
+// ── POST /api/image/prune ──────────────────────────────
+
+func (h *Handler) PruneImages(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	count, err := h.monitor.PruneImages()
+	if err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "removed": count})
 }
 
 // ── Token helpers ────────────────────────────────────

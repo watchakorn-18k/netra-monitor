@@ -2,14 +2,17 @@ package domain
 
 // Stats is the aggregate root containing all system metrics.
 type Stats struct {
-	CPU      CPUStats      `json:"cpu"`
-	Memory   MemoryStats   `json:"memory"`
-	Disks    []DiskStats   `json:"disks"`
-	DiskIO   DiskIOStats   `json:"diskIO"`
-	Network  NetworkStats  `json:"network"`
-	System   SystemInfo    `json:"system"`
-	TopProcs []ProcessInfo `json:"topProcesses"`
-	History  HistoryData   `json:"history"`
+	CPU        CPUStats        `json:"cpu"`
+	Memory     MemoryStats     `json:"memory"`
+	Disks      []DiskStats     `json:"disks"`
+	DiskIO     DiskIOStats     `json:"diskIO"`
+	Network    NetworkStats    `json:"network"`
+	System     SystemInfo      `json:"system"`
+	TopProcs   []ProcessInfo   `json:"topProcesses"`
+	TopMem     []ProcessInfo   `json:"topMemory"`
+	Containers []ContainerInfo `json:"containers"`
+	Images     []ImageInfo     `json:"images"`
+	History    HistoryData     `json:"history"`
 }
 
 // CPUStats represents CPU utilization metrics.
@@ -64,11 +67,12 @@ type SystemInfo struct {
 
 // ProcessInfo represents a running process summary.
 type ProcessInfo struct {
-	Name    string  `json:"name"`
-	Service string  `json:"service,omitempty"`
-	PID     int32   `json:"pid"`
-	CPU     float64 `json:"cpu"`
-	Mem     float32 `json:"mem"`
+	Name     string  `json:"name"`
+	Service  string  `json:"service,omitempty"`
+	PID      int32   `json:"pid"`
+	CPU      float64 `json:"cpu"`
+	Mem      float32 `json:"mem"`
+	MemBytes uint64  `json:"memBytes"`
 }
 
 // HistoryData holds time-series data for sparkline charts.
@@ -77,6 +81,27 @@ type HistoryData struct {
 	Memory []float64 `json:"memory"`
 	NetRx  []uint64  `json:"netRx"`
 	NetTx  []uint64  `json:"netTx"`
+}
+
+// ContainerInfo represents a Podman container.
+type ContainerInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Image    string `json:"image"`
+	State    string `json:"state"`
+	Status   string `json:"status"`
+	Ports    string `json:"ports"`
+	Created  int64  `json:"created"`
+	MemLimit string `json:"memLimit,omitempty"`
+}
+
+// ImageInfo represents a Podman image.
+type ImageInfo struct {
+	ID        string   `json:"id"`
+	RepoTags  []string `json:"repoTags"`
+	Size      int64    `json:"size"`
+	Created   int64    `json:"created"`
+	Containers int     `json:"containers"`
 }
 
 // SystemRepository is the port for collecting system metrics.
@@ -88,5 +113,12 @@ type SystemRepository interface {
 	GetNetwork() (NetworkStats, error)
 	GetSystemInfo() (SystemInfo, error)
 	GetTopProcesses(limit int) ([]ProcessInfo, error)
+	GetTopMemoryProcesses(limit int) ([]ProcessInfo, error)
+	GetContainers() ([]ContainerInfo, error)
+	GetImages() ([]ImageInfo, error)
 	KillProcess(pid int32) error
+	RestartProcess(pid int32) error
+	ContainerAction(id string, action string) error
+	RemoveImage(id string) error
+	PruneImages() (int, error)
 }
