@@ -1,0 +1,9 @@
+netra-monitor
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+cmd/server/static/
+.git/
+.gitignore
+.agents/
+.github/
