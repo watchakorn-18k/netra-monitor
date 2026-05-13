@@ -17,7 +17,7 @@ GO ?= $(HOME)/go/bin/go
 
 # Build everything: frontend + Go binary
 build: frontend
-	$(GO) build -ldflags="-s -w" -o netra-monitor ./cmd/server/
+	$(GO) build -o netra-monitor ./cmd/server/
 
 # Build frontend directly into Go embed path
 frontend:

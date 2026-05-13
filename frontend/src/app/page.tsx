@@ -338,6 +338,12 @@ export default function Dashboard() {
   }, [fetchStats]);
 
   const handleContainerAction = useCallback(async (id: string, action: string) => {
+    if (!authed) {
+      setShowLogin(true);
+      setLoginErr('');
+      setLoginPwd('');
+      return;
+    }
     const msgs: Record<string, string> = {
       start: `Start container ${id}?`,
       stop: `Stop container ${id}?`,
@@ -720,7 +726,7 @@ export default function Dashboard() {
                       <TableHead>Status</TableHead>
                       <TableHead>Ports</TableHead>
                       <TableHead>Memory</TableHead>
-                      {authed && <TableHead className="text-center">Actions</TableHead>}
+                      <TableHead className="text-center">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -736,48 +742,46 @@ export default function Dashboard() {
                         <TableCell className="text-xs text-muted-foreground">{c.status}</TableCell>
                         <TableCell className="text-xs text-muted-foreground font-mono">{c.ports || '—'}</TableCell>
                         <TableCell className="text-xs font-mono">{c.memLimit || '—'}</TableCell>
-                        {authed && (
-                          <TableCell>
-                            <div className="flex items-center justify-center gap-1">
-                              {c.state !== 'running' && (
-                                <ActionBtn
-                                  icon={Play}
-                                  variant="start"
-                                  title="Start"
-                                  disabled={containerLoading === `start-${c.id}`}
-                                  onClick={() => handleContainerAction(c.id, 'start')}
-                                />
-                              )}
-                              {c.state === 'running' && (
-                                <ActionBtn
-                                  icon={Square}
-                                  variant="stop"
-                                  title="Stop"
-                                  disabled={containerLoading === `stop-${c.id}`}
-                                  onClick={() => handleContainerAction(c.id, 'stop')}
-                                />
-                              )}
-                              {c.state === 'running' && (
-                                <ActionBtn
-                                  icon={RotateCw}
-                                  variant="restart"
-                                  title="Restart"
-                                  disabled={containerLoading === `restart-${c.id}`}
-                                  onClick={() => handleContainerAction(c.id, 'restart')}
-                                />
-                              )}
-                              {c.state !== 'running' && (
-                                <ActionBtn
-                                  icon={Trash2}
-                                  variant="remove"
-                                  title="Remove (must stop first)"
-                                  disabled={containerLoading === `remove-${c.id}`}
-                                  onClick={() => handleContainerAction(c.id, 'remove')}
-                                />
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-1">
+                            {c.state !== 'running' && (
+                              <ActionBtn
+                                icon={Play}
+                                variant="start"
+                                title="Start"
+                                disabled={containerLoading === `start-${c.id}`}
+                                onClick={() => handleContainerAction(c.id, 'start')}
+                              />
+                            )}
+                            {c.state === 'running' && (
+                              <ActionBtn
+                                icon={Square}
+                                variant="stop"
+                                title="Stop"
+                                disabled={containerLoading === `stop-${c.id}`}
+                                onClick={() => handleContainerAction(c.id, 'stop')}
+                              />
+                            )}
+                            {c.state === 'running' && (
+                              <ActionBtn
+                                icon={RotateCw}
+                                variant="restart"
+                                title="Restart"
+                                disabled={containerLoading === `restart-${c.id}`}
+                                onClick={() => handleContainerAction(c.id, 'restart')}
+                              />
+                            )}
+                            {c.state !== 'running' && authed && (
+                              <ActionBtn
+                                icon={Trash2}
+                                variant="remove"
+                                title="Remove (must stop first)"
+                                disabled={containerLoading === `remove-${c.id}`}
+                                onClick={() => handleContainerAction(c.id, 'remove')}
+                              />
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
