@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -755,6 +756,141 @@ func (r *gopsutilRepository) ComposeAction(name string, action string) error {
 		return fmt.Errorf("podman-compose %s %s failed: %s", action, name, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// ── Cron Jobs ────────────────────────────────────────
+
+func (r *gopsutilRepository) GetCronJobs() ([]domain.CronJob, error) {
+	out, err := exec.Command("crontab", "-l").CombinedOutput()
+	if err != nil {
+		return nil, nil // no crontab or not available
+	}
+	var jobs []domain.CronJob
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		jobs = append(jobs, domain.CronJob{Line: line})
+	}
+	return jobs, nil
+}
+
+// ── Uptime Checks ────────────────────────────────────
+
+func (r *gopsutilRepository) GetUptimeChecks() ([]domain.UptimeCheck, error) {
+	urlsStr := os.Getenv("UPTIME_URLS")
+	if urlsStr == "" {
+		return nil, nil
+	}
+	urls := strings.Split(urlsStr, ",")
+	results := make([]domain.UptimeCheck, 0, len(urls))
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		results = append(results, checkUptime(u))
+	}
+	return results, nil
+}
+
+func checkUptime(rawURL string) domain.UptimeCheck {
+	result := domain.UptimeCheck{URL: rawURL, LastChecked: time.Now().Format(time.RFC3339)}
+	start := time.Now()
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(rawURL)
+	elapsed := time.Since(start)
+	if err != nil {
+		result.Error = err.Error()
+		result.Online = false
+		return result
+	}
+	defer resp.Body.Close()
+	result.StatusCode = resp.StatusCode
+	result.ResponseMs = float64(elapsed.Milliseconds())
+	result.Online = resp.StatusCode >= 200 && resp.StatusCode < 400
+	return result
+}
+
+// ── Network Tools ───────────────────────────────────
+
+func (r *gopsutilRepository) RunNetworkTool(tool string, target string) (domain.NetworkToolResult, error) {
+	result := domain.NetworkToolResult{Tool: tool, Target: target}
+	var cmd *exec.Cmd
+	switch tool {
+	case "ping":
+		cmd = exec.Command("ping", "-c", "4", "-W", "3", target)
+	case "dns":
+		cmd = exec.Command("dig", "+short", target)
+	case "traceroute":
+		cmd = exec.Command("traceroute", "-m", "15", target)
+	case "port":
+		cmd = exec.Command("nc", "-zvw3", target, strings.Split(target, ":")[len(strings.Split(target, ":"))-1])
+	default:
+		return result, fmt.Errorf("unsupported tool: %s", tool)
+	}
+	out, err := cmd.CombinedOutput()
+	result.Output = string(out)
+	if err != nil {
+		result.Error = strings.TrimSpace(err.Error())
+	}
+	return result, nil
+}
+
+// ── File Browser ────────────────────────────────────
+
+func (r *gopsutilRepository) BrowseDir(path string) ([]domain.FileInfo, error) {
+	// Restrict to safe paths
+	if path == "" {
+		path = "/var/log"
+	}
+	// Basic path traversal protection
+	if strings.Contains(path, "..") {
+		return nil, fmt.Errorf("path traversal not allowed")
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]domain.FileInfo, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		result = append(result, domain.FileInfo{
+			Name:    e.Name(),
+			Path:    path + "/" + e.Name(),
+			Size:    info.Size(),
+			IsDir:   e.IsDir(),
+			ModTime: info.ModTime().Format("2006-01-02 15:04"),
+			Mode:    info.Mode().String(),
+		})
+	}
+	return result, nil
+}
+
+func (r *gopsutilRepository) ReadFile(path string) (string, error) {
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+	// Restrict file size to 1MB
+	stat, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if stat.Size() > 1*1024*1024 {
+		return "", fmt.Errorf("file too large (max 1MB)")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // ── helpers ────────────────────────────────────────────

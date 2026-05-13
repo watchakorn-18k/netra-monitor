@@ -68,26 +68,30 @@ func (m *Monitor) Collect() (*domain.Stats, error) {
 	containers, _ := m.repo.GetContainers()
 	images, _ := m.repo.GetImages()
 	services, _ := m.repo.GetServices()
+	cronJobs, _ := m.repo.GetCronJobs()
+	uptimeChecks, _ := m.repo.GetUptimeChecks()
 	servicesSSL, _ := m.repo.GetSSLCerts()
-	stacks, _ := m.repo.GetComposeStacks()
+	composeStacks, _ := m.repo.GetComposeStacks()
 
 	m.pushHistory(cpu.Usage, mem.Percent, net.RxBytes, net.TxBytes)
 
 	return &domain.Stats{
-		CPU:        cpu,
-		Memory:     mem,
-		Disks:      disks,
-		DiskIO:     diskIO,
-		Network:    net,
-		System:     sysInfo,
-		TopProcs:   procs,
-		TopMem:     topMem,
-		Containers: containers,
-		Images:     images,
-		Services:   services,
-		SSLCerts:   servicesSSL,
-		Stacks:     stacks,
-		History:    m.getHistory(),
+		CPU:          cpu,
+		Memory:       mem,
+		Disks:        disks,
+		DiskIO:       diskIO,
+		Network:      net,
+		System:       sysInfo,
+		TopProcs:     procs,
+		TopMem:       topMem,
+		Containers:   containers,
+		Images:       images,
+		Services:     services,
+		SSLCerts:     servicesSSL,
+		Stacks:       composeStacks,
+		CronJobs:     cronJobs,
+		UptimeURLs:   uptimeChecks,
+		History:      m.getHistory(),
 	}, nil
 }
 
@@ -129,6 +133,22 @@ func (m *Monitor) ServiceAction(name string, action string) error {
 // ComposeAction performs up/down/restart on a compose stack.
 func (m *Monitor) ComposeAction(name string, action string) error {
 	return m.repo.ComposeAction(name, action)
+}
+
+// RunNetworkTool runs a network diagnostic command.
+func (m *Monitor) RunNetworkTool(tool string, target string) (*domain.NetworkToolResult, error) {
+	result, err := m.repo.RunNetworkTool(tool, target)
+	return &result, err
+}
+
+// BrowseDir lists files in a directory.
+func (m *Monitor) BrowseDir(path string) ([]domain.FileInfo, error) {
+	return m.repo.BrowseDir(path)
+}
+
+// ReadFile reads a file's content.
+func (m *Monitor) ReadFile(path string) (string, error) {
+	return m.repo.ReadFile(path)
 }
 
 func (m *Monitor) pushHistory(cpu, mem float64, netRx, netTx uint64) {

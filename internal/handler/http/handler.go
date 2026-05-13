@@ -85,6 +85,8 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	resp["services"] = stats.Services
 	resp["sslCerts"] = stats.SSLCerts
 	resp["stacks"] = stats.Stacks
+	resp["cronJobs"] = stats.CronJobs
+	resp["uptimeChecks"] = stats.UptimeURLs
 	resp["history"] = stats.History
 	resp["authEnabled"] = h.AuthEnabled()
 	resp["authenticated"] = h.Authenticated(r)
@@ -401,6 +403,105 @@ func (h *Handler) ContainerTerminal(w http.ResponseWriter, r *http.Request) {
 
 	cmd.Process.Kill()
 	cmd.Wait()
+}
+
+// ── POST /api/nettool ────────────────────────────────
+
+func (h *Handler) NetworkTool(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+	var body struct {
+		Tool   string `json:"tool"`   // ping, dns, traceroute, port
+		Target string `json:"target"` // hostname or IP
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "invalid body"})
+		return
+	}
+	if body.Tool == "" || body.Target == "" {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "tool and target required"})
+		return
+	}
+
+	result, err := h.monitor.RunNetworkTool(body.Tool, body.Target)
+	if err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, result)
+}
+
+// ── GET /api/files/browse?path=... ────────────────────
+
+func (h *Handler) FileBrowse(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+	path := r.URL.Query().Get("path")
+	files, err := h.monitor.BrowseDir(path)
+	if err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "files": files, "path": path})
+}
+
+// ── GET /api/files/read?path=... ──────────────────────
+
+func (h *Handler) FileRead(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+	path := r.URL.Query().Get("path")
+	content, err := h.monitor.ReadFile(path)
+	if err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "content": content, "path": path})
+}
+
+// ── GET /api/export ──────────────────────────────────
+
+func (h *Handler) ExportStats(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		http.Error(w, "authentication required", http.StatusForbidden)
+		return
+	}
+	stats, err := h.monitor.Collect()
+	if err != nil {
+		http.Error(w, "failed to collect stats", http.StatusInternalServerError)
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=netra-stats.csv")
+		fmt.Fprintf(w, "metric,value\n")
+		fmt.Fprintf(w, "cpu_usage,%.1f\n", stats.CPU.Usage)
+		fmt.Fprintf(w, "cpu_cores,%d\n", stats.CPU.Cores)
+		fmt.Fprintf(w, "mem_total,%d\n", stats.Memory.Total)
+		fmt.Fprintf(w, "mem_used,%d\n", stats.Memory.Used)
+		fmt.Fprintf(w, "mem_percent,%.1f\n", stats.Memory.Percent)
+		fmt.Fprintf(w, "swap_total,%d\n", stats.Memory.SwapTotal)
+		fmt.Fprintf(w, "swap_used,%d\n", stats.Memory.SwapUsed)
+		fmt.Fprintf(w, "uptime,%d\n", stats.System.Uptime)
+		fmt.Fprintf(w, "containers,%d\n", len(stats.Containers))
+		for i, d := range stats.Disks {
+			fmt.Fprintf(w, "disk_%d_mount,%s\n", i, d.Mount)
+			fmt.Fprintf(w, "disk_%d_percent,%.1f\n", i, d.Percent)
+		}
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", "attachment; filename=netra-stats.json")
+		json.NewEncoder(w).Encode(stats)
+	}
 }
 
 // ── Token helpers ────────────────────────────────────

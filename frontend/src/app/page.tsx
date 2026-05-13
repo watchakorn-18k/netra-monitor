@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ArrowDown, ArrowUp, Clock3, Cpu, Flame, Gauge, HardDrive, Monitor, ServerCog, Thermometer, Timer, Database, LogIn, LogOut, Skull, X, KeyRound, RotateCw, Container, ImageIcon, Play, Square, Trash2, Trash, Scissors, Sun, Moon, FileText, Activity, Wrench } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clock3, Cpu, Flame, Gauge, HardDrive, Monitor, ServerCog, Thermometer, Timer, Database, LogIn, LogOut, Skull, X, KeyRound, RotateCw, Container, ImageIcon, Play, Square, Trash2, Trash, Scissors, Sun, Moon, FileText, Activity, Wrench, Download, Folder, Terminal as TerminalIcon, Globe, Search, RefreshCw, ChevronRight, File } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -76,6 +76,36 @@ interface ComposeStack {
   running: number;
 }
 
+interface CronJob {
+  line: string;
+  user: string;
+}
+
+interface UptimeCheck {
+  url: string;
+  online: boolean;
+  statusCode: number;
+  responseMs: number;
+  error: string;
+  lastChecked: string;
+}
+
+interface NetToolResult {
+  tool: string;
+  target: string;
+  output: string;
+  error: string;
+}
+
+interface FileEntry {
+  name: string;
+  path: string;
+  size: number;
+  isDir: boolean;
+  modTime: string;
+  mode: string;
+}
+
 interface Stats {
   cpu: { usage: number; cores: number; perCore: number[] };
   memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number; swapPercent: number };
@@ -90,6 +120,8 @@ interface Stats {
   services: ServiceInfo[];
   sslCerts: SSLCertInfo[];
   stacks: ComposeStack[];
+  cronJobs: CronJob[];
+  uptimeChecks: UptimeCheck[];
   history: { cpu: number[]; memory: number[]; netRx: number[]; netTx: number[] };
   authEnabled: boolean;
   authenticated: boolean;
@@ -302,6 +334,15 @@ export default function Dashboard() {
   const [serviceLoading, setServiceLoading] = useState<string | null>(null);
   const [stackLoading, setStackLoading] = useState<string | null>(null);
   const [showTerminal, setShowTerminal] = useState<string | null>(null);
+  const [netToolResult, setNetToolResult] = useState<NetToolResult | null>(null);
+  const [netToolLoading, setNetToolLoading] = useState(false);
+  const [netToolTarget, setNetToolTarget] = useState('');
+  const [netToolType, setNetToolType] = useState('ping');
+  const [fileBrowserPath, setFileBrowserPath] = useState('/var/log');
+  const [fileBrowserFiles, setFileBrowserFiles] = useState<FileEntry[]>([]);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [fileContentName, setFileContentName] = useState('');
+  const [fileLoading, setFileLoading] = useState(false);
   const termRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -520,6 +561,52 @@ export default function Dashboard() {
     setShowTerminal(null);
   }, []);
 
+  const handleNetTool = useCallback(async () => {
+    if (!netToolTarget) return;
+    setNetToolLoading(true);
+    setNetToolResult(null);
+    try {
+      const res = await fetch('/api/nettool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: netToolType, target: netToolTarget }),
+      });
+      const data = await res.json();
+      setNetToolResult(data);
+    } catch { setNetToolResult({ tool: netToolType, target: netToolTarget, output: '', error: 'Network error' }); }
+    finally { setNetToolLoading(false); }
+  }, [netToolType, netToolTarget]);
+
+  const handleBrowse = useCallback(async (path: string) => {
+    setFileLoading(true);
+    setFileContent(null);
+    try {
+      const res = await fetch(`/api/files/browse?path=${encodeURIComponent(path)}`);
+      const data = await res.json();
+      if (data.ok) {
+        setFileBrowserFiles(data.files || []);
+        setFileBrowserPath(data.path || path);
+      }
+    } catch { /* ignore */ }
+    finally { setFileLoading(false); }
+  }, []);
+
+  const handleReadFile = useCallback(async (path: string, name: string) => {
+    setFileLoading(true);
+    setFileContentName(name);
+    try {
+      const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+      const data = await res.json();
+      if (data.ok) setFileContent(data.content);
+      else setFileContent(data.error || 'Failed to read');
+    } catch { setFileContent('Network error'); }
+    finally { setFileLoading(false); }
+  }, []);
+
+  const handleExport = useCallback(() => {
+    window.open('/api/export?format=json', '_blank');
+  }, []);
+
   // Connect terminal WebSocket
   useEffect(() => {
     if (!showTerminal || !termRef.current) return;
@@ -636,6 +723,15 @@ export default function Dashboard() {
             >
               {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
             </button>
+            {authed && (
+              <button
+                onClick={handleExport}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-white/10 hover:text-white transition-colors"
+                title="Export stats"
+              >
+                <Download className="h-3.5 w-3.5" /> Export
+              </button>
+            )}
             {stats.authEnabled && (
               authed ? (
                 <button
@@ -1368,6 +1464,156 @@ export default function Dashboard() {
           </CardContent>
         </Card>
         )}
+
+        {/* ── Cron Jobs ───────────────────────────────── */}
+        {stats.cronJobs && stats.cronJobs.length > 0 && (
+        <Card className="fade-in-up">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><Clock3 className="h-4 w-4" aria-hidden="true" /> Cron Jobs</CardTitle>
+                <CardDescription>Scheduled tasks</CardDescription>
+              </div>
+              <Badge variant="secondary">{stats.cronJobs.length} jobs</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {stats.cronJobs.map((job, i) => (
+                <div key={i} className="rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs break-all">{job.line}</div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        )}
+
+        {/* ── Uptime Monitor ───────────────────────────── */}
+        {stats.uptimeChecks && stats.uptimeChecks.length > 0 && (
+        <Card className="fade-in-up">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><Globe className="h-4 w-4" aria-hidden="true" /> Uptime Monitor</CardTitle>
+                <CardDescription>URL health checks</CardDescription>
+              </div>
+              <Badge variant="secondary">{stats.uptimeChecks.length} URLs</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>URL</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Response</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {stats.uptimeChecks.map((u, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">{u.url}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${u.online ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                        {u.online ? 'Online' : 'Offline'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs font-mono">{u.error ? '—' : `${u.responseMs.toFixed(0)}ms`}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{u.lastChecked ? new Date(u.lastChecked).toLocaleTimeString('th-TH', { hour12: false }) : '—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+        )}
+
+        {/* ── Network Tools ────────────────────────────── */}
+        <Card className="fade-in-up">
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><Search className="h-4 w-4" aria-hidden="true" /> Network Tools</CardTitle>
+            <CardDescription>Ping, DNS lookup, traceroute</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <select
+                value={netToolType}
+                onChange={(e) => setNetToolType(e.target.value)}
+                className="rounded-lg border border-white/10 bg-muted/50 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="ping">Ping</option>
+                <option value="dns">DNS Lookup</option>
+                <option value="traceroute">Traceroute</option>
+                <option value="port">Port Check</option>
+              </select>
+              <input
+                value={netToolTarget}
+                onChange={(e) => setNetToolTarget(e.target.value)}
+                placeholder={netToolType === 'port' ? 'host:port' : 'hostname or IP'}
+                className="flex-1 rounded-lg border border-white/10 bg-muted/50 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                onClick={handleNetTool}
+                disabled={netToolLoading || !netToolTarget}
+                className="rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50"
+              >
+                {netToolLoading ? 'Running...' : 'Run'}
+              </button>
+            </div>
+            {netToolResult && (
+              <pre className="rounded-lg bg-black/50 p-4 text-xs font-mono overflow-auto max-h-[300px] whitespace-pre-wrap">{netToolResult.error ? `Error: ${netToolResult.error}` : netToolResult.output}</pre>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── File Browser ─────────────────────────────── */}
+        <Card className="fade-in-up">
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2"><Folder className="h-4 w-4" aria-hidden="true" /> File Browser</CardTitle>
+            <CardDescription>Browse server files (logs, configs)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              <input
+                value={fileBrowserPath}
+                onChange={(e) => setFileBrowserPath(e.target.value)}
+                placeholder="/var/log"
+                className="flex-1 rounded-lg border border-white/10 bg-muted/50 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                onClick={() => handleBrowse(fileBrowserPath)}
+                disabled={fileLoading}
+                className="rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50"
+              >
+                {fileLoading ? '...' : 'Browse'}
+              </button>
+            </div>
+            {fileContent !== null ? (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-mono text-muted-foreground">{fileContentName}</span>
+                  <button onClick={() => setFileContent(null)} className="text-xs text-muted-foreground hover:text-white"><X className="h-3.5 w-3.5" /></button>
+                </div>
+                <pre className="rounded-lg bg-black/50 p-3 text-xs font-mono overflow-auto max-h-[400px] whitespace-pre-wrap">{fileContent}</pre>
+              </div>
+            ) : fileBrowserFiles.length > 0 ? (
+              <div className="rounded-lg border border-white/10 divide-y divide-white/5">
+                {fileBrowserFiles.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1)).map((f, i) => (
+                  <button
+                    key={i}
+                    onClick={() => f.isDir ? handleBrowse(f.path) : handleReadFile(f.path, f.name)}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs hover:bg-white/5 transition-colors text-left"
+                  >
+                    {f.isDir ? <Folder className="h-4 w-4 text-amber-400 shrink-0" /> : <File className="h-4 w-4 text-muted-foreground shrink-0" />}
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <span className="text-muted-foreground shrink-0">{f.isDir ? '\u2014' : formatBytes(f.size)}</span>
+                    <span className="text-muted-foreground/60 shrink-0 hidden sm:block">{f.modTime}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
 
         {/* ── Terminal Modal ────────────────────────────── */}
         {showTerminal && (

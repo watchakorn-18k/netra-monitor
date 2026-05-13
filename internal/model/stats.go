@@ -14,10 +14,12 @@ type Stats struct {
 	TopMem     []ProcessInfo   `json:"topMemory"`
 	Containers []ContainerInfo `json:"containers"`
 	Images     []ImageInfo     `json:"images"`
-	Services    []ServiceInfo   `json:"services"`
-	SSLCerts    []SSLCertInfo   `json:"sslCerts"`
-	Stacks      []ComposeStack  `json:"stacks"`
-	History     HistoryData     `json:"history"`
+	Services   []ServiceInfo   `json:"services"`
+	SSLCerts   []SSLCertInfo   `json:"sslCerts"`
+	Stacks     []ComposeStack  `json:"stacks"`
+	CronJobs   []CronJob       `json:"cronJobs"`
+	UptimeURLs []UptimeCheck   `json:"uptimeChecks"`
+	History    HistoryData     `json:"history"`
 }
 
 // CPUStats represents CPU utilization metrics.
@@ -118,54 +120,76 @@ type ImageInfo struct {
 
 // ServiceInfo represents a systemd service.
 type ServiceInfo struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Active      string    `json:"active"`   // active, inactive, failed
-	Sub         string    `json:"sub"`      // running, exited, dead
-	Enabled     bool      `json:"enabled"`
-	Uptime      string    `json:"uptime,omitempty"`
-	PID         int32     `json:"pid,omitempty"`
-	MemBytes    uint64    `json:"memBytes,omitempty"`
-	CPUPct      float64   `json:"cpuPct,omitempty"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Active      string  `json:"active"`
+	Sub         string  `json:"sub"`
+	Enabled     bool    `json:"enabled"`
+	Uptime      string  `json:"uptime,omitempty"`
+	PID         int32   `json:"pid,omitempty"`
+	MemBytes    uint64  `json:"memBytes,omitempty"`
+	CPUPct      float64 `json:"cpuPct,omitempty"`
 }
 
 // ContainerLog represents a container log entry.
 type ContainerLog struct {
 	Line      string    `json:"line"`
 	Timestamp time.Time `json:"timestamp,omitempty"`
-	Type      string    `json:"type,omitempty"` // stdout, stderr
-}
-
-// AlertConfig holds alert notification settings.
-type AlertConfig struct {
-	Type     string `json:"type"` // telegram, discord
-	Token    string `json:"token"`
-	ChatID   string `json:"chatId"`
-	Webhook  string `json:"webhook,omitempty"`
-	CPU      int    `json:"cpu,omitempty"`
-	Mem      int    `json:"mem,omitempty"`
-	Disk     int    `json:"disk,omitempty"`
-	Interval int    `json:"interval,omitempty"` // seconds between alerts
+	Type      string    `json:"type,omitempty"`
 }
 
 // SSLCertInfo represents an SSL certificate check result.
 type SSLCertInfo struct {
-	Domain       string `json:"domain"`
-	Issuer       string `json:"issuer"`
-	NotBefore    string `json:"notBefore"`
-	NotAfter     string `json:"notAfter"`
-	DaysLeft     int    `json:"daysLeft"`
-	Expired      bool   `json:"expired"`
-	Error        string `json:"error,omitempty"`
+	Domain   string `json:"domain"`
+	Issuer   string `json:"issuer"`
+	NotBefore string `json:"notBefore"`
+	NotAfter  string `json:"notAfter"`
+	DaysLeft int    `json:"daysLeft"`
+	Expired  bool   `json:"expired"`
+	Error    string `json:"error,omitempty"`
 }
 
 // ComposeStack represents a podman-compose/docker-compose stack.
 type ComposeStack struct {
-	Name        string `json:"name"`
-	File        string `json:"file"`
-	Status      string `json:"status"`
-	Services    int    `json:"services"`
-	Running     int    `json:"running"`
+	Name     string `json:"name"`
+	File     string `json:"file"`
+	Status   string `json:"status"`
+	Services int    `json:"services"`
+	Running  int    `json:"running"`
+}
+
+// CronJob represents a crontab entry.
+type CronJob struct {
+	Line string `json:"line"`
+	User string `json:"user,omitempty"`
+}
+
+// UptimeCheck represents a URL health check result.
+type UptimeCheck struct {
+	URL          string  `json:"url"`
+	Online       bool    `json:"online"`
+	StatusCode   int     `json:"statusCode,omitempty"`
+	ResponseMs   float64 `json:"responseMs,omitempty"`
+	Error        string  `json:"error,omitempty"`
+	LastChecked  string  `json:"lastChecked"`
+}
+
+// NetworkToolResult holds the output of a network diagnostic command.
+type NetworkToolResult struct {
+	Tool    string `json:"tool"`
+	Target  string `json:"target"`
+	Output   string `json:"output"`
+	Error    string `json:"error,omitempty"`
+}
+
+// FileInfo represents a file/dir entry for file browser.
+type FileInfo struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	IsDir   bool   `json:"isDir"`
+	ModTime string `json:"modTime"`
+	Mode    string `json:"mode"`
 }
 
 // SystemRepository is the port for collecting system metrics.
@@ -184,6 +208,11 @@ type SystemRepository interface {
 	GetContainerLogs(id string, tail int) ([]ContainerLog, error)
 	GetSSLCerts() ([]SSLCertInfo, error)
 	GetComposeStacks() ([]ComposeStack, error)
+	GetCronJobs() ([]CronJob, error)
+	GetUptimeChecks() ([]UptimeCheck, error)
+	RunNetworkTool(tool string, target string) (NetworkToolResult, error)
+	BrowseDir(path string) ([]FileInfo, error)
+	ReadFile(path string) (string, error)
 	ComposeAction(name string, action string) error
 	KillProcess(pid int32) error
 	RestartProcess(pid int32) error
