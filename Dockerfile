@@ -23,16 +23,15 @@ COPY --from=frontend /build/out ./cmd/server/static/
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /netra-monitor ./cmd/server/
 
-# ── Stage 3: Runtime (minimal) ─────────────────────
+# ── Stage 3: Runtime ───────────────────────────────
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -g 1000 app && \
-    adduser -D -u 1000 -G app app
+# Install podman client so the app can talk to the host's Podman via socket
+RUN apk add --no-cache ca-certificates tzdata podman
 
 COPY --from=backend /netra-monitor /usr/local/bin/netra-monitor
 
-USER app
+# Must run as root to access host podman socket and system info
 EXPOSE 20265
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
