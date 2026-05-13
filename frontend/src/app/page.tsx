@@ -732,7 +732,7 @@ export default function Dashboard() {
                       <TableHead>Status</TableHead>
                       <TableHead>Ports</TableHead>
                       <TableHead>Memory</TableHead>
-                      <TableHead className="text-center">Actions</TableHead>}
+                      <TableHead className="text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
