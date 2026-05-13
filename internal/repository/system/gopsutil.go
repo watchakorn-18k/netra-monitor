@@ -387,11 +387,12 @@ func (r *gopsutilRepository) GetImages() ([]domain.ImageInfo, error) {
 	}
 
 	var raw []struct {
-		ID        string   `json:"Id"`
-		RepoTags  []string `json:"RepoTags"`
-		Size      int64    `json:"Size"`
-		Created   int64    `json:"Created"`
-		Containers int     `json:"Containers"`
+		ID         string   `json:"Id"`
+		RepoTags   []string `json:"RepoTags"`
+		Names      []string `json:"Names"`
+		Size       int64    `json:"Size"`
+		Created    int64    `json:"Created"`
+		Containers int      `json:"Containers"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, nil
@@ -399,17 +400,19 @@ func (r *gopsutilRepository) GetImages() ([]domain.ImageInfo, error) {
 
 	result := make([]domain.ImageInfo, 0, len(raw))
 	for _, img := range raw {
-		// Show short ID (first 12 chars)
 		shortID := img.ID
 		if len(shortID) > 12 {
-			// podman returns full sha256:xxx, take last 12
 			parts := strings.SplitN(shortID, ":", 2)
 			if len(parts) == 2 && len(parts[1]) > 12 {
 				shortID = parts[1][:12]
 			}
 		}
+		// RepoTags is first priority, then Names (podman uses Names when untagged)
 		tags := img.RepoTags
-		if tags == nil {
+		if len(tags) == 0 {
+			tags = img.Names
+		}
+		if len(tags) == 0 {
 			tags = []string{"<none>"}
 		}
 		result = append(result, domain.ImageInfo{
