@@ -374,7 +374,7 @@ export default function Dashboard() {
       const res = await fetch('/api/image/prune', { method: 'POST' });
       const data = await res.json();
       if (!data.ok) alert(data.error || 'Failed to prune');
-      else alert(`Pruned successfully. Removed: ${data.removed}`);
+      else alert(`Pruned ${data.removed} unused image(s)`);
       fetchStats();
     } catch { alert('Network error'); }
     finally { setPruneLoading(false); }

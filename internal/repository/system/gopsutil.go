@@ -436,19 +436,22 @@ func (r *gopsutilRepository) RemoveImage(id string) error {
 }
 
 func (r *gopsutilRepository) PruneImages() (int, error) {
+	// Count images before prune
+	before, _ := r.GetImages()
+	beforeCount := len(before)
+
 	cmd := exec.Command("podman", "image", "prune", "-f")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return 0, fmt.Errorf("podman image prune failed: %s", strings.TrimSpace(string(out)))
 	}
-	// Parse number of deleted images from output
-	count := 0
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "deleted") || strings.Contains(line, "untagged") {
-			count++
-		}
-	}
-	return count, nil
+
+	// Count images after prune
+	after, _ := r.GetImages()
+	afterCount := len(after)
+
+	_ = out
+	return beforeCount - afterCount, nil
 }
 
 // ── helpers ────────────────────────────────────────────
