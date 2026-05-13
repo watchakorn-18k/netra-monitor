@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -132,18 +133,56 @@ func (r *gopsutilRepository) GetNetwork() (domain.NetworkStats, error) {
 		return domain.NetworkStats{}, err
 	}
 
+	result := domain.NetworkStats{}
+	var bestName string
+	var bestTotal uint64
 	for _, c := range counters {
-		if c.Name == "lo" {
+		if c.Name == "lo" || c.Name == "lo0" {
 			continue
 		}
-		return domain.NetworkStats{
-			Interface: c.Name,
-			RxBytes:   c.BytesRecv,
-			TxBytes:   c.BytesSent,
-		}, nil
+		total := c.BytesRecv + c.BytesSent
+		if total > bestTotal {
+			bestTotal = total
+			bestName = c.Name
+		}
+		if c.BytesRecv > 0 || c.BytesSent > 0 {
+			result.Interfaces = append(result.Interfaces, domain.NetInterface{
+				Name:     c.Name,
+				RxBytes:  c.BytesRecv,
+				TxBytes:  c.BytesSent,
+			})
+		}
+	}
+	if bestName != "" {
+		for _, c := range counters {
+			if c.Name == bestName {
+				result.Interface = c.Name
+				result.RxBytes = c.BytesRecv
+				result.TxBytes = c.BytesSent
+				break
+			}
+		}
 	}
 
-	return domain.NetworkStats{}, nil
+	// Get public IP (best effort)
+	client := &http.Client{Timeout: 3 * time.Second}
+	if resp, err := client.Get("https://api.ipify.org"); err == nil {
+		defer resp.Body.Close()
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			result.PublicIP = strings.TrimSpace(string(body))
+		}
+	}
+
+	// Count established connections
+	if conns, err := psnet.Connections("tcp"); err == nil {
+		for _, c := range conns {
+			if c.Status == "ESTABLISHED" {
+				result.ConnCount++
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (r *gopsutilRepository) GetSystemInfo() (domain.SystemInfo, error) {

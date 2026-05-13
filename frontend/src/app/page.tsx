@@ -111,7 +111,14 @@ interface Stats {
   memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number; swapPercent: number };
   disks: { device: string; mount: string; total: number; used: number; free: number; percent: number }[];
   diskIO: { readBytes: number; writeBytes: number };
-  network: { interface: string; rxBytes: number; txBytes: number };
+  network: {
+    interface: string;
+    rxBytes: number;
+    txBytes: number;
+    interfaces: { name: string; rxBytes: number; txBytes: number; up: boolean }[];
+    publicIP: string;
+    connCount: number;
+  };
   system: { hostname: string; os: string; arch: string; kernel: string; uptime: number };
   topProcesses: { name: string; service?: string; pid: number; cpu: number; mem: number; memBytes: number }[];
   topMemory: { name: string; service?: string; pid: number; cpu: number; mem: number; memBytes: number }[];
@@ -870,7 +877,12 @@ export default function Dashboard() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm uppercase tracking-wider">Network</CardTitle>
-                <Badge variant="outline">{stats.network.interface}</Badge>
+                <div className="flex items-center gap-2">
+                  {stats.network.publicIP && (
+                    <Badge variant="outline" className="font-mono text-[10px]">{stats.network.publicIP}</Badge>
+                  )}
+                  <Badge variant="outline">{stats.network.interface}</Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-2">
@@ -878,10 +890,12 @@ export default function Dashboard() {
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
                   <p className="text-xs text-muted-foreground mb-1 inline-flex items-center justify-center gap-1"><ArrowDown className="h-3 w-3" aria-hidden="true" /> Download</p>
                   <p className="text-xl font-bold text-emerald-400">{history.length > 0 ? formatBytesPerSec(history[history.length-1].netIn) : '0 B/s'}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Total: {formatBytes(stats.network.rxBytes)}</p>
                 </div>
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
                   <p className="text-xs text-muted-foreground mb-1 inline-flex items-center justify-center gap-1"><ArrowUp className="h-3 w-3" aria-hidden="true" /> Upload</p>
                   <p className="text-xl font-bold text-white">{history.length > 0 ? formatBytesPerSec(history[history.length-1].netOut) : '0 B/s'}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Total: {formatBytes(stats.network.txBytes)}</p>
                 </div>
               </div>
               <div className="mt-4">
@@ -892,6 +906,41 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground mb-1 inline-flex items-center gap-1"><ArrowUp className="h-3 w-3" aria-hidden="true" /> Upload History</p>
                 <Sparkline data={netOutH} color="#ffffff" height={50} />
               </div>
+              {/* Extra info */}
+              <div className="mt-4 pt-3 border-t border-border grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Connections</p>
+                  <p className="text-sm font-semibold">{stats.network.connCount}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Interfaces</p>
+                  <p className="text-sm font-semibold">{stats.network.interfaces?.length ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Total I/O</p>
+                  <p className="text-sm font-semibold">{formatBytes(stats.network.rxBytes + stats.network.txBytes)}</p>
+                </div>
+              </div>
+              {/* Interface list */}
+              {stats.network.interfaces && stats.network.interfaces.length > 1 && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">All Interfaces</p>
+                  <div className="space-y-1.5">
+                    {stats.network.interfaces.map((iface, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs bg-muted/30 rounded-lg px-3 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`size-1.5 rounded-full ${iface.name === stats.network.interface ? 'bg-emerald-400' : 'bg-muted-foreground/50'}`} />
+                          <span className="font-mono">{iface.name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-muted-foreground">
+                          <span>↓{formatBytes(iface.rxBytes)}</span>
+                          <span>↑{formatBytes(iface.txBytes)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

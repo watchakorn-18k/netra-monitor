@@ -58,9 +58,23 @@ type DiskIOStats struct {
 
 // NetworkStats represents network interface counters.
 type NetworkStats struct {
-	Interface string `json:"interface"`
+	Interface  string          `json:"interface"`
+	RxBytes    uint64          `json:"rxBytes"`
+	TxBytes    uint64          `json:"txBytes"`
+	Interfaces []NetInterface  `json:"interfaces"`
+	PublicIP   string          `json:"publicIP"`
+	ConnCount  int             `json:"connCount"`
+}
+
+// NetInterface represents a single network interface.
+type NetInterface struct {
+	Name      string `json:"name"`
 	RxBytes   uint64 `json:"rxBytes"`
 	TxBytes   uint64 `json:"txBytes"`
+	Speed     int64  `json:"speed,omitempty"`
+	MTU       int    `json:"mtu,omitempty"`
+	Hardware  string `json:"hardware,omitempty"`
+	Up        bool   `json:"up"`
 }
 
 // SystemInfo represents static host information.
