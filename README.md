@@ -10,11 +10,22 @@ Real-time VPS resource monitoring dashboard — Go backend + Next.js frontend, s
 ## Features
 
 - **CPU** — total usage, per-core bars, sparkline history
-- **Memory** — RAM + Swap with progress bars
+- **Memory** — RAM + Swap with progress bars, top 5 memory consumers
 - **Disk** — partition usage + I/O counters
 - **Network** — download/upload speed + sparkline history
-- **Processes** — top 8 by CPU usage, **kill PID** with auth
-- **Auth** — password-protected kill access, public viewing
+- **Processes** — top 20 by CPU, top 5 by memory, service name detection
+  - **Kill** / **Restart** process (auth required)
+- **Podman Containers** — list all containers (running + stopped)
+  - **Start** / **Stop** / **Restart** buttons (visible to all, requires auth)
+  - **Remove** stopped containers (auth required)
+  - Show port mappings and memory limits
+- **Podman Images** — list all images with size
+  - **Remove** individual images (auth required)
+  - **Prune** dangling/unused images (auth required, safe — never removes images used by containers)
+- **Auth** — password-protected management, public dashboard viewing
+  - Default password: `123456`
+  - Change via `AUTH_PASSWORD` env or `.env` file
+  - Remember password option (localStorage)
 - Auto-refresh every 2 seconds. Pure black theme, zero glow.
 
 ## Quick Start
@@ -28,6 +39,7 @@ docker run -d \
   -p 20265:20265 \
   -e AUTH_PASSWORD=mys3cret \
   --cap-add SYS_PTRACE \
+  -v /run/podman/podman.sock:/run/podman/podman.sock:ro \
   ghcr.io/watchakorn-18k/netra-monitor:latest
 ```
 
@@ -40,14 +52,32 @@ AUTH_PASSWORD=mys3cret ./netra-monitor
 
 Open `http://your-vps-ip:20265`
 
-## Auth & Kill Process
+## Auth System
 
-| AUTH_PASSWORD | View Dashboard | Kill PID |
-|---------------|----------------|----------|
-| Not set | ✅ Public | ❌ Blocked |
-| Set | ✅ Public | 🔐 Login required |
+| AUTH_PASSWORD | View Dashboard | Start/Stop/Restart Container | Kill/Restart PID | Remove Container | Remove/Prune Image |
+|---------------|----------------|------------------------------|------------------|------------------|---------------------|
+| Not set       | ✅ Public       | ❌ Blocked                   | ❌ Blocked        | ❌ Blocked        | ❌ Blocked           |
+| Set           | ✅ Public       | 🔐 Login required            | 🔐 Login required | 🔐 Login required | 🔐 Login required    |
 
-Login via the UI to unlock the **Kill** button on each process.
+> **Default password:** `123456` — change by setting `AUTH_PASSWORD` in env or `.env` file
+
+Login via the **Admin Login** button in the header to unlock management actions.
+
+## API
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/stats` | No | Full system metrics (CPU, RAM, disk, network, processes, containers, images) |
+| POST | `/api/login` | No | `{ "password": "..." }` — set cookie |
+| POST | `/api/logout` | No | Clear session cookie |
+| POST | `/api/kill/{pid}` | Yes | Kill process by PID |
+| POST | `/api/restart/{pid}` | Yes | Restart service owning PID |
+| POST | `/api/container/start/{id}` | Yes | Start container |
+| POST | `/api/container/stop/{id}` | Yes | Stop container |
+| POST | `/api/container/restart/{id}` | Yes | Restart container |
+| POST | `/api/container/remove/{id}` | Yes | Remove stopped container |
+| POST | `/api/image/remove/{id}` | Yes | Remove image |
+| POST | `/api/image/prune` | Yes | Prune dangling images (safe) |
 
 ## Architecture
 
@@ -56,12 +86,12 @@ Clean Architecture (Go)
 ┌─────────────────────────────────────────────┐
 │ cmd/server/main.go          ← Entry point   │
 │ internal/                                    │
-│ ├── domain/stats.go         ← Entities      │
+│ ├── model/stats.go          ← Entities      │
 │ ├── repository/system/      ← Data source   │
-│ ├── usecase/monitor/        ← Business logic│
-│ └── delivery/http/          ← HTTP + Auth   │
+│ ├── service/monitor/        ← Business logic│
+│ └── handler/http/           ← HTTP + Auth   │
 │ frontend/                   ← Next.js UI    │
-│ cmd/server/static/         ← Generated frontend embed│
+│ cmd/server/static/          ← Generated embed│
 └─────────────────────────────────────────────┘
 ```
 
@@ -75,35 +105,25 @@ make frontend       # build frontend into cmd/server/static/
 make docker         # docker build
 ```
 
-
 ## Development
 
 ```bash
-# terminal 1: backend API for Next.js rewrites
-PORT=3001 $HOME/go/bin/go run ./cmd/server
+# terminal 1: backend API
+PORT=3001 go run ./cmd/server
 
 # terminal 2: frontend dev server
 cd frontend
 npx next dev --port 3000 --hostname 0.0.0.0
 ```
 
-Open `http://your-vps-ip:3000` for dev. Production binary defaults to port `20265`.
-
-## API
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/stats` | No | System metrics |
-| POST | `/api/login` | No | `{ "password": "..." }` |
-| POST | `/api/logout` | No | Clear session |
-| POST | `/api/kill/{pid}` | Yes | Kill process |
+Open `http://localhost:3000` for dev. Production binary defaults to port `20265`.
 
 ## Environment Variables
 
 | Name | Default | Description |
 |------|---------|-------------|
 | `PORT` | `20265` | HTTP listen port |
-| `AUTH_PASSWORD` | (empty) | Password for kill access |
+| `AUTH_PASSWORD` | `123456` | Password for management actions |
 
 ## Performance
 
