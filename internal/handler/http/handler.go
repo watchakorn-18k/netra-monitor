@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"netra-monitor/internal/service/monitor"
 )
@@ -80,6 +83,8 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	resp["containers"] = stats.Containers
 	resp["images"] = stats.Images
 	resp["services"] = stats.Services
+	resp["sslCerts"] = stats.SSLCerts
+	resp["stacks"] = stats.Stacks
 	resp["history"] = stats.History
 	resp["authEnabled"] = h.AuthEnabled()
 	resp["authenticated"] = h.Authenticated(r)
@@ -294,6 +299,108 @@ func (h *Handler) ServiceAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]interface{}{"ok": true, "action": action, "name": name})
+}
+
+// ── POST /api/compose/{action}/{name} ──────────────────
+
+func (h *Handler) ComposeAction(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/compose/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "invalid path"})
+		return
+	}
+	action, name := parts[0], parts[1]
+
+	if err := h.monitor.ComposeAction(name, action); err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "action": action, "name": name})
+}
+
+// ── WebSocket /api/container/terminal/{id} ────────────
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func (h *Handler) ContainerTerminal(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		http.Error(w, "authentication required", http.StatusForbidden)
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/api/container/terminal/")
+	if id == "" {
+		http.Error(w, "missing container id", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// Start podman exec with /bin/sh (fallback to /bin/bash)
+	cmd := exec.Command("podman", "exec", "-it", id, "/bin/sh")
+	if _, err := exec.Command("podman", "exec", id, "test", "-x", "/bin/sh").CombinedOutput(); err != nil {
+		cmd = exec.Command("podman", "exec", "-it", id, "/bin/bash")
+	}
+
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	if err := cmd.Start(); err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v\r\n", err)))
+		return
+	}
+
+	// stdout/stderr -> websocket
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				conn.WriteMessage(websocket.TextMessage, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				conn.WriteMessage(websocket.TextMessage, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// websocket -> stdin
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		stdin.Write(msg)
+	}
+
+	cmd.Process.Kill()
+	cmd.Wait()
 }
 
 // ── Token helpers ────────────────────────────────────

@@ -1,8 +1,10 @@
 package system
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -584,6 +586,173 @@ func (r *gopsutilRepository) ServiceAction(name string, action string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("systemctl %s %s failed: %s", action, name, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// ── SSL Certificate Check ────────────────────────────
+
+func (r *gopsutilRepository) GetSSLCerts() ([]domain.SSLCertInfo, error) {
+	domainsStr := os.Getenv("SSL_DOMAINS")
+	if domainsStr == "" {
+		return nil, nil
+	}
+	domains := strings.Split(domainsStr, ",")
+	results := make([]domain.SSLCertInfo, 0, len(domains))
+	for _, d := range domains {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		results = append(results, checkSSLCert(d))
+	}
+	return results, nil
+}
+
+func checkSSLCert(host string) domain.SSLCertInfo {
+	info := domain.SSLCertInfo{Domain: host}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", host+":443", &tls.Config{InsecureSkipVerify: false})
+	if err != nil {
+		info.Error = err.Error()
+		return info
+	}
+	defer conn.Close()
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		info.Error = "no certificates found"
+		return info
+	}
+	cert := certs[0]
+	now := time.Now()
+	daysLeft := int(cert.NotAfter.Sub(now).Hours() / 24)
+	info.Issuer = cert.Issuer.CommonName
+	info.NotBefore = cert.NotBefore.Format("2006-01-02")
+	info.NotAfter = cert.NotAfter.Format("2006-01-02")
+	info.DaysLeft = daysLeft
+	info.Expired = cert.NotAfter.Before(now)
+	return info
+}
+
+// ── Compose Stacks ───────────────────────────────────
+
+func (r *gopsutilRepository) GetComposeStacks() ([]domain.ComposeStack, error) {
+	// Find compose files in common locations
+	searchDirs := []string{"/opt/stacks", "/opt/compose", "/home"}
+	dir := os.Getenv("COMPOSE_DIR")
+	if dir != "" {
+		searchDirs = []string{dir}
+	}
+
+	var stacks []domain.ComposeStack
+	for _, d := range searchDirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			composeFile := findComposeFile(d + "/" + e.Name())
+			if composeFile == "" {
+				continue
+			}
+			stack := domain.ComposeStack{
+				Name: e.Name(),
+				File: composeFile,
+			}
+			// Try to get status via podman-compose ps
+			stack.Services, stack.Running = getComposeStatus(e.Name(), composeFile)
+			stack.Status = fmt.Sprintf("%d/%d running", stack.Running, stack.Services)
+			stacks = append(stacks, stack)
+		}
+	}
+	return stacks, nil
+}
+
+func findComposeFile(dir string) string {
+	for _, name := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "podman-compose.yml", "podman-compose.yaml"} {
+		p := dir + "/" + name
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func getComposeStatus(name string, composeFile string) (total int, running int) {
+	out, err := exec.Command("podman-compose", "--file", composeFile, "ps", "--format", "json").CombinedOutput()
+	if err != nil {
+		// Fallback: count containers with project label
+		out2, err2 := exec.Command("podman", "ps", "-a", "--filter", "label=com.docker.compose.project="+name, "--format", "json").Output()
+		if err2 != nil {
+			return 0, 0
+		}
+		var containers []struct {
+			State string `json:"State"`
+		}
+		if json.Unmarshal(out2, &containers) != nil {
+			return 0, 0
+		}
+		total = len(containers)
+		for _, c := range containers {
+			if c.State == "running" {
+				running++
+			}
+		}
+		return
+	}
+	var services []struct {
+		State string `json:"State"`
+	}
+	if json.Unmarshal(out, &services) != nil {
+		return 0, 0
+	}
+	total = len(services)
+	for _, s := range services {
+		if s.State == "running" {
+			running++
+		}
+	}
+	return
+}
+
+func (r *gopsutilRepository) ComposeAction(name string, action string) error {
+	// Find the compose file for this stack
+	searchDirs := []string{"/opt/stacks", "/opt/compose", "/home"}
+	dir := os.Getenv("COMPOSE_DIR")
+	if dir != "" {
+		searchDirs = []string{dir}
+	}
+	var composeFile string
+	for _, d := range searchDirs {
+		p := d + "/" + name
+		composeFile = findComposeFile(p)
+		if composeFile != "" {
+			break
+		}
+	}
+	if composeFile == "" {
+		return fmt.Errorf("compose file not found for stack %s", name)
+	}
+
+	switch action {
+	case "up", "down", "restart":
+	default:
+		return fmt.Errorf("invalid compose action: %s", action)
+	}
+
+	var cmd *exec.Cmd
+	if action == "down" {
+		cmd = exec.Command("podman-compose", "--file", composeFile, "down")
+	} else if action == "restart" {
+		cmd = exec.Command("podman-compose", "--file", composeFile, "restart")
+	} else {
+		cmd = exec.Command("podman-compose", "--file", composeFile, "up", "-d")
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("podman-compose %s %s failed: %s", action, name, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

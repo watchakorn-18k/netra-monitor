@@ -14,8 +14,10 @@ type Stats struct {
 	TopMem     []ProcessInfo   `json:"topMemory"`
 	Containers []ContainerInfo `json:"containers"`
 	Images     []ImageInfo     `json:"images"`
-	Services   []ServiceInfo   `json:"services"`
-	History    HistoryData     `json:"history"`
+	Services    []ServiceInfo   `json:"services"`
+	SSLCerts    []SSLCertInfo   `json:"sslCerts"`
+	Stacks      []ComposeStack  `json:"stacks"`
+	History     HistoryData     `json:"history"`
 }
 
 // CPUStats represents CPU utilization metrics.
@@ -146,6 +148,26 @@ type AlertConfig struct {
 	Interval int    `json:"interval,omitempty"` // seconds between alerts
 }
 
+// SSLCertInfo represents an SSL certificate check result.
+type SSLCertInfo struct {
+	Domain       string `json:"domain"`
+	Issuer       string `json:"issuer"`
+	NotBefore    string `json:"notBefore"`
+	NotAfter     string `json:"notAfter"`
+	DaysLeft     int    `json:"daysLeft"`
+	Expired      bool   `json:"expired"`
+	Error        string `json:"error,omitempty"`
+}
+
+// ComposeStack represents a podman-compose/docker-compose stack.
+type ComposeStack struct {
+	Name        string `json:"name"`
+	File        string `json:"file"`
+	Status      string `json:"status"`
+	Services    int    `json:"services"`
+	Running     int    `json:"running"`
+}
+
 // SystemRepository is the port for collecting system metrics.
 type SystemRepository interface {
 	GetCPU() (CPUStats, error)
@@ -160,6 +182,9 @@ type SystemRepository interface {
 	GetImages() ([]ImageInfo, error)
 	GetServices() ([]ServiceInfo, error)
 	GetContainerLogs(id string, tail int) ([]ContainerLog, error)
+	GetSSLCerts() ([]SSLCertInfo, error)
+	GetComposeStacks() ([]ComposeStack, error)
+	ComposeAction(name string, action string) error
 	KillProcess(pid int32) error
 	RestartProcess(pid int32) error
 	ContainerAction(id string, action string) error

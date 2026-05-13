@@ -58,6 +58,24 @@ interface ServiceInfo {
   cpuPct: number;
 }
 
+interface SSLCertInfo {
+  domain: string;
+  issuer: string;
+  notBefore: string;
+  notAfter: string;
+  daysLeft: number;
+  expired: boolean;
+  error: string;
+}
+
+interface ComposeStack {
+  name: string;
+  file: string;
+  status: string;
+  services: number;
+  running: number;
+}
+
 interface Stats {
   cpu: { usage: number; cores: number; perCore: number[] };
   memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number; swapPercent: number };
@@ -70,6 +88,8 @@ interface Stats {
   containers: ContainerInfo[];
   images: ImageInfo[];
   services: ServiceInfo[];
+  sslCerts: SSLCertInfo[];
+  stacks: ComposeStack[];
   history: { cpu: number[]; memory: number[]; netRx: number[]; netTx: number[] };
   authEnabled: boolean;
   authenticated: boolean;
@@ -280,6 +300,10 @@ export default function Dashboard() {
   const [logsData, setLogsData] = useState<string[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [serviceLoading, setServiceLoading] = useState<string | null>(null);
+  const [stackLoading, setStackLoading] = useState<string | null>(null);
+  const [showTerminal, setShowTerminal] = useState<string | null>(null);
+  const termRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const prevNetRef = useRef<{ rx: number; tx: number; ts: number } | null>(null);
 
@@ -459,6 +483,105 @@ export default function Dashboard() {
     document.documentElement.classList.toggle('dark', darkMode);
     localStorage.setItem('netra_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+
+  const handleStackAction = useCallback(async (name: string, action: string) => {
+    if (!authed) {
+      setShowLogin(true);
+      setLoginErr('');
+      setLoginPwd('');
+      return;
+    }
+    if (!confirm(`${action === 'up' ? 'Start' : action === 'down' ? 'Stop' : 'Restart'} stack ${name}?`)) return;
+    setStackLoading(`${action}-${name}`);
+    try {
+      const res = await fetch(`/api/compose/${action}/${name}`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) alert(data.error || `Failed to ${action}`);
+      fetchStats();
+    } catch { alert('Network error'); }
+    finally { setStackLoading(null); }
+  }, [authed, fetchStats, setShowLogin, setLoginErr, setLoginPwd]);
+
+  const handleOpenTerminal = useCallback(async (id: string) => {
+    if (!authed) {
+      setShowLogin(true);
+      setLoginErr('');
+      setLoginPwd('');
+      return;
+    }
+    setShowTerminal(id);
+  }, [authed, setShowLogin, setLoginErr, setLoginPwd]);
+
+  const handleCloseTerminal = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setShowTerminal(null);
+  }, []);
+
+  // Connect terminal WebSocket
+  useEffect(() => {
+    if (!showTerminal || !termRef.current) return;
+    let term: any;
+    let fitAddon: any;
+
+    (async () => {
+      const [{ Terminal }, { FitAddon }] = await Promise.all([
+        import('@xterm/xterm'),
+        import('@xterm/addon-fit'),
+      ]);
+      await import('@xterm/xterm/css/xterm.css');
+
+      term = new Terminal({
+        theme: {
+          background: '#0d0d0d',
+          foreground: '#e0e0e0',
+          cursor: '#ffffff',
+        },
+        fontSize: 13,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        cursorBlink: true,
+      });
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(termRef.current!);
+      fitAddon.fit();
+
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/api/container/terminal/${showTerminal}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (e) => {
+        term.write(e.data);
+      };
+      ws.onclose = () => {
+        term.write('\r\n[Connection closed]\r\n');
+      };
+      ws.onerror = () => {
+        term.write('\r\n[Connection error]\r\n');
+      };
+
+      term.onData((data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+
+      const onResize = () => fitAddon.fit();
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    })();
+
+    return () => {
+      term?.dispose();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [showTerminal]);
 
   // ── Loading ──────────────────────────────────────────
   if (loading || !stats) {
@@ -870,6 +993,14 @@ export default function Dashboard() {
                               disabled={logsLoading && showLogs === c.id}
                               onClick={() => handleFetchLogs(c.id)}
                             />
+                            {c.state === 'running' && (
+                              <ActionBtn
+                                icon={Activity}
+                                variant="start"
+                                title="Terminal"
+                                onClick={() => handleOpenTerminal(c.id)}
+                              />
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1120,6 +1251,144 @@ export default function Dashboard() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SSL Certificates ─────────────────────────── */}
+        <Card className="fade-in-up" style={{ animationDelay: '0.9s' }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2">
+                  <Gauge className="h-4 w-4" aria-hidden="true" /> SSL Certificates
+                </CardTitle>
+                <CardDescription>Certificate expiry monitoring</CardDescription>
+              </div>
+              <Badge variant="secondary">{stats.sslCerts?.length ?? 0} domains</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(!stats.sslCerts || stats.sslCerts.length === 0) ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No SSL domains configured. Set <span className="font-mono text-xs">SSL_DOMAINS=example.com,api.example.com</span> in .env</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Domain</TableHead>
+                    <TableHead>Issuer</TableHead>
+                    <TableHead>Expires</TableHead>
+                    <TableHead>Days Left</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stats.sslCerts.map((cert, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-mono text-xs font-medium">{cert.domain}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{cert.issuer || '\u2014'}</TableCell>
+                      <TableCell className="text-xs font-mono">{cert.notAfter || '\u2014'}</TableCell>
+                      <TableCell className={`text-xs font-mono font-bold ${cert.expired ? 'text-red-400' : cert.daysLeft <= 30 ? 'text-amber-400' : cert.daysLeft <= 7 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {cert.error ? '\u2014' : cert.daysLeft}
+                      </TableCell>
+                      <TableCell>
+                        {cert.error ? (
+                          <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-red-400">Error</span>
+                        ) : cert.expired ? (
+                          <span className="inline-flex rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-red-400">Expired</span>
+                        ) : cert.daysLeft <= 30 ? (
+                          <span className="inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-400">Expiring</span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-emerald-400">Valid</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Compose Stacks ──────────────────────────────── */}
+        <Card className="fade-in-up" style={{ animationDelay: '1.0s' }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2">
+                  <Database className="h-4 w-4" aria-hidden="true" /> Compose Stacks
+                </CardTitle>
+                <CardDescription>Podman Compose / Docker Compose management</CardDescription>
+              </div>
+              <Badge variant="secondary">{stats.stacks?.length ?? 0} stacks</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(!stats.stacks || stats.stacks.length === 0) ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No compose stacks found. Set <span className="font-mono text-xs">COMPOSE_DIR=/opt/stacks</span> in .env or place compose files in /opt/stacks</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Stack</TableHead>
+                    <TableHead>File</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Services</TableHead>
+                    <TableHead className="text-center">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stats.stacks.map((stack, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-mono text-xs font-medium">{stack.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground truncate max-w-[250px]" title={stack.file}>{stack.file}</TableCell>
+                      <TableCell>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${stack.running === stack.services && stack.services > 0 ? 'bg-emerald-500/10 text-emerald-400' : stack.running > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'}`}>
+                          {stack.status}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs font-mono">{stack.running}/{stack.services}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-1">
+                          <ActionBtn icon={Play} variant="start" title="Up (start)" disabled={stackLoading === `up-${stack.name}`} onClick={() => handleStackAction(stack.name, 'up')} />
+                          <ActionBtn icon={RotateCw} variant="restart" title="Restart" disabled={stackLoading === `restart-${stack.name}`} onClick={() => handleStackAction(stack.name, 'restart')} />
+                          <ActionBtn icon={Square} variant="stop" title="Down (stop)" disabled={stackLoading === `down-${stack.name}`} onClick={() => handleStackAction(stack.name, 'down')} />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Terminal Modal ────────────────────────────── */}
+        {showTerminal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="relative w-full max-w-4xl mx-4 rounded-xl border border-white/10 bg-[#0d0d0d] p-4 shadow-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center size-8 rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <Activity className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold">Container Terminal</h2>
+                    <p className="text-xs text-muted-foreground">{showTerminal}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCloseTerminal}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" /> Disconnect
+                </button>
+              </div>
+              <div
+                ref={termRef}
+                className="rounded-lg overflow-hidden"
+                style={{ height: '500px' }}
+              />
             </div>
           </div>
         )}

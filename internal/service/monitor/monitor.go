@@ -68,6 +68,8 @@ func (m *Monitor) Collect() (*domain.Stats, error) {
 	containers, _ := m.repo.GetContainers()
 	images, _ := m.repo.GetImages()
 	services, _ := m.repo.GetServices()
+	servicesSSL, _ := m.repo.GetSSLCerts()
+	stacks, _ := m.repo.GetComposeStacks()
 
 	m.pushHistory(cpu.Usage, mem.Percent, net.RxBytes, net.TxBytes)
 
@@ -83,6 +85,8 @@ func (m *Monitor) Collect() (*domain.Stats, error) {
 		Containers: containers,
 		Images:     images,
 		Services:   services,
+		SSLCerts:   servicesSSL,
+		Stacks:     stacks,
 		History:    m.getHistory(),
 	}, nil
 }
@@ -120,6 +124,11 @@ func (m *Monitor) GetContainerLogs(id string, tail int) ([]domain.ContainerLog, 
 // ServiceAction performs start/stop/restart on a systemd service.
 func (m *Monitor) ServiceAction(name string, action string) error {
 	return m.repo.ServiceAction(name, action)
+}
+
+// ComposeAction performs up/down/restart on a compose stack.
+func (m *Monitor) ComposeAction(name string, action string) error {
+	return m.repo.ComposeAction(name, action)
 }
 
 func (m *Monitor) pushHistory(cpu, mem float64, netRx, netTx uint64) {

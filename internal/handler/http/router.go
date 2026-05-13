@@ -20,7 +20,9 @@ func SetupRouter(staticFS fs.FS, m *monitor.Monitor) http.Handler {
 	mux.HandleFunc("/api/restart/", h.RestartProcess)
 	mux.HandleFunc("/api/container/", h.ContainerAction)
 	mux.HandleFunc("/api/container/logs/", h.ContainerLogs)
+	mux.HandleFunc("/api/container/terminal/", h.ContainerTerminal)
 	mux.HandleFunc("/api/service/", h.ServiceAction)
+	mux.HandleFunc("/api/compose/", h.ComposeAction)
 	mux.HandleFunc("/api/image/prune", h.PruneImages)
 	mux.HandleFunc("/api/image/remove/", h.RemoveImage)
 

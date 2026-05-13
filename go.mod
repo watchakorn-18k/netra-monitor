@@ -2,7 +2,10 @@ module netra-monitor
 
 go 1.24.3
 
-require github.com/shirou/gopsutil/v3 v3.24.5
+require (
+	github.com/gorilla/websocket v1.5.3
+	github.com/shirou/gopsutil/v3 v3.24.5
+)
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
