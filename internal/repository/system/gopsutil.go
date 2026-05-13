@@ -291,9 +291,9 @@ func (r *gopsutilRepository) GetContainers() ([]domain.ContainerInfo, error) {
 		Status  string `json:"Status"`
 		Ports   []struct {
 			HostIP   string `json:"host_ip"`
-			HostPort string `json:"host_port"`
+			HostPort int    `json:"host_port"`
 		} `json:"Ports"`
-		Created int64  `json:"CreatedAt"`
+		Created string `json:"CreatedAt"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, nil
@@ -310,8 +310,8 @@ func (r *gopsutilRepository) GetContainers() ([]domain.ContainerInfo, error) {
 		}
 		var portStrs []string
 		for _, p := range c.Ports {
-			if p.HostPort != "" {
-				portStrs = append(portStrs, p.HostIP+":"+p.HostPort)
+			if p.HostPort != 0 {
+				portStrs = append(portStrs, fmt.Sprintf("%s:%d", p.HostIP, p.HostPort))
 			}
 		}
 		result = append(result, domain.ContainerInfo{

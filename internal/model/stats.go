@@ -91,7 +91,7 @@ type ContainerInfo struct {
 	State    string `json:"state"`
 	Status   string `json:"status"`
 	Ports    string `json:"ports"`
-	Created  int64  `json:"created"`
+	Created  string `json:"created"`
 	MemLimit string `json:"memLimit,omitempty"`
 }
 

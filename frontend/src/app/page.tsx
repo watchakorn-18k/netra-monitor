@@ -237,7 +237,12 @@ export default function Dashboard() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [authed, setAuthed] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
-  const [loginPwd, setLoginPwd] = useState('');
+  const [loginPwd, setLoginPwd] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('netra_saved_pwd') || '';
+    }
+    return '';
+  });
   const [loginErr, setLoginErr] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [killLoading, setKillLoading] = useState<number | null>(null);
@@ -307,6 +312,7 @@ export default function Dashboard() {
       if (data.ok) {
         setAuthed(true);
         setShowLogin(false);
+        localStorage.setItem('netra_saved_pwd', loginPwd);
         setLoginPwd('');
         fetchStats();
       } else {
@@ -903,6 +909,22 @@ export default function Dashboard() {
                   autoFocus
                   className="w-full rounded-lg border border-white/10 bg-muted/50 px-3 py-2 text-sm text-white placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Default: <span className="font-mono text-muted-foreground">123456</span> &middot; Change via <span className="font-mono">AUTH_PASSWORD</span> in <span className="font-mono">.env</span>
+                  </p>
+                  <label className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      defaultChecked={!!localStorage.getItem('netra_saved_pwd')}
+                      onChange={(e) => {
+                        if (!e.target.checked) localStorage.removeItem('netra_saved_pwd');
+                      }}
+                      className="rounded border-white/20 bg-muted"
+                    />
+                    Remember
+                  </label>
+                </div>
                 {loginErr && (
                   <p className="text-xs text-destructive">{loginErr}</p>
                 )}
