@@ -79,6 +79,7 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	resp["topMemory"] = stats.TopMem
 	resp["containers"] = stats.Containers
 	resp["images"] = stats.Images
+	resp["services"] = stats.Services
 	resp["history"] = stats.History
 	resp["authEnabled"] = h.AuthEnabled()
 	resp["authenticated"] = h.Authenticated(r)
@@ -238,6 +239,61 @@ func (h *Handler) PruneImages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, 200, map[string]interface{}{"ok": true, "removed": count})
+}
+
+// ── GET /api/container/logs/{id} ────────────────────────
+
+func (h *Handler) ContainerLogs(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/api/container/logs/")
+	if id == "" {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "missing container id"})
+		return
+	}
+
+	tailStr := r.URL.Query().Get("tail")
+	tail := 100
+	if tailStr != "" {
+		if t, err := strconv.Atoi(tailStr); err == nil {
+			tail = t
+		}
+	}
+
+	logs, err := h.monitor.GetContainerLogs(id, tail)
+	if err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "logs": logs})
+}
+
+// ── POST /api/service/{action}/{name} ──────────────────
+
+func (h *Handler) ServiceAction(w http.ResponseWriter, r *http.Request) {
+	if !h.Authenticated(r) {
+		writeJSON(w, 403, map[string]interface{}{"ok": false, "error": "authentication required"})
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api/service/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "error": "invalid path"})
+		return
+	}
+	action, name := parts[0], parts[1]
+
+	if err := h.monitor.ServiceAction(name, action); err != nil {
+		writeJSON(w, 500, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "action": action, "name": name})
 }
 
 // ── Token helpers ────────────────────────────────────

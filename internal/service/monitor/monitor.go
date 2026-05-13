@@ -67,6 +67,7 @@ func (m *Monitor) Collect() (*domain.Stats, error) {
 
 	containers, _ := m.repo.GetContainers()
 	images, _ := m.repo.GetImages()
+	services, _ := m.repo.GetServices()
 
 	m.pushHistory(cpu.Usage, mem.Percent, net.RxBytes, net.TxBytes)
 
@@ -81,6 +82,7 @@ func (m *Monitor) Collect() (*domain.Stats, error) {
 		TopMem:     topMem,
 		Containers: containers,
 		Images:     images,
+		Services:   services,
 		History:    m.getHistory(),
 	}, nil
 }
@@ -108,6 +110,16 @@ func (m *Monitor) RemoveImage(id string) error {
 // PruneImages removes unused Podman images.
 func (m *Monitor) PruneImages() (int, error) {
 	return m.repo.PruneImages()
+}
+
+// GetContainerLogs returns container logs.
+func (m *Monitor) GetContainerLogs(id string, tail int) ([]domain.ContainerLog, error) {
+	return m.repo.GetContainerLogs(id, tail)
+}
+
+// ServiceAction performs start/stop/restart on a systemd service.
+func (m *Monitor) ServiceAction(name string, action string) error {
+	return m.repo.ServiceAction(name, action)
 }
 
 func (m *Monitor) pushHistory(cpu, mem float64, netRx, netTx uint64) {

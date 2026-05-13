@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 // Stats is the aggregate root containing all system metrics.
 type Stats struct {
 	CPU        CPUStats        `json:"cpu"`
@@ -12,6 +14,7 @@ type Stats struct {
 	TopMem     []ProcessInfo   `json:"topMemory"`
 	Containers []ContainerInfo `json:"containers"`
 	Images     []ImageInfo     `json:"images"`
+	Services   []ServiceInfo   `json:"services"`
 	History    HistoryData     `json:"history"`
 }
 
@@ -85,23 +88,62 @@ type HistoryData struct {
 
 // ContainerInfo represents a Podman container.
 type ContainerInfo struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Image    string `json:"image"`
-	State    string `json:"state"`
-	Status   string `json:"status"`
-	Ports    string `json:"ports"`
-	Created  string `json:"created"`
-	MemLimit string `json:"memLimit,omitempty"`
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Image    string  `json:"image"`
+	State    string  `json:"state"`
+	Status   string  `json:"status"`
+	Ports    string  `json:"ports"`
+	Created  string  `json:"created"`
+	MemLimit string  `json:"memLimit,omitempty"`
+	CPU      float64 `json:"cpu,omitempty"`
+	MemUsage string  `json:"memUsage,omitempty"`
+	MemPct   float64 `json:"memPct,omitempty"`
+	NetIO    string  `json:"netIO,omitempty"`
+	BlockIO  string  `json:"blockIO,omitempty"`
+	PIDs     int     `json:"pids,omitempty"`
+	Uptime   string  `json:"uptime,omitempty"`
 }
 
 // ImageInfo represents a Podman image.
 type ImageInfo struct {
-	ID        string   `json:"id"`
-	RepoTags  []string `json:"repoTags"`
-	Size      int64    `json:"size"`
-	Created   int64    `json:"created"`
-	Containers int     `json:"containers"`
+	ID         string   `json:"id"`
+	RepoTags   []string `json:"repoTags"`
+	Size       int64    `json:"size"`
+	Created    int64    `json:"created"`
+	Containers int      `json:"containers"`
+}
+
+// ServiceInfo represents a systemd service.
+type ServiceInfo struct {
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Active      string    `json:"active"`   // active, inactive, failed
+	Sub         string    `json:"sub"`      // running, exited, dead
+	Enabled     bool      `json:"enabled"`
+	Uptime      string    `json:"uptime,omitempty"`
+	PID         int32     `json:"pid,omitempty"`
+	MemBytes    uint64    `json:"memBytes,omitempty"`
+	CPUPct      float64   `json:"cpuPct,omitempty"`
+}
+
+// ContainerLog represents a container log entry.
+type ContainerLog struct {
+	Line      string    `json:"line"`
+	Timestamp time.Time `json:"timestamp,omitempty"`
+	Type      string    `json:"type,omitempty"` // stdout, stderr
+}
+
+// AlertConfig holds alert notification settings.
+type AlertConfig struct {
+	Type     string `json:"type"` // telegram, discord
+	Token    string `json:"token"`
+	ChatID   string `json:"chatId"`
+	Webhook  string `json:"webhook,omitempty"`
+	CPU      int    `json:"cpu,omitempty"`
+	Mem      int    `json:"mem,omitempty"`
+	Disk     int    `json:"disk,omitempty"`
+	Interval int    `json:"interval,omitempty"` // seconds between alerts
 }
 
 // SystemRepository is the port for collecting system metrics.
@@ -116,9 +158,12 @@ type SystemRepository interface {
 	GetTopMemoryProcesses(limit int) ([]ProcessInfo, error)
 	GetContainers() ([]ContainerInfo, error)
 	GetImages() ([]ImageInfo, error)
+	GetServices() ([]ServiceInfo, error)
+	GetContainerLogs(id string, tail int) ([]ContainerLog, error)
 	KillProcess(pid int32) error
 	RestartProcess(pid int32) error
 	ContainerAction(id string, action string) error
 	RemoveImage(id string) error
 	PruneImages() (int, error)
+	ServiceAction(name string, action string) error
 }

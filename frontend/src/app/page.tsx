@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ArrowDown, ArrowUp, Clock3, Cpu, Flame, Gauge, HardDrive, Monitor, ServerCog, Thermometer, Timer, Database, LogIn, LogOut, Skull, X, KeyRound, RotateCw, Container, ImageIcon, Play, Square, Trash2, Trash, Scissors } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clock3, Cpu, Flame, Gauge, HardDrive, Monitor, ServerCog, Thermometer, Timer, Database, LogIn, LogOut, Skull, X, KeyRound, RotateCw, Container, ImageIcon, Play, Square, Trash2, Trash, Scissors, Sun, Moon, FileText, Activity, Wrench } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -27,8 +27,15 @@ interface ContainerInfo {
   state: string;
   status: string;
   ports: string;
-  created: number;
+  created: string;
   memLimit: string;
+  cpu: number;
+  memUsage: string;
+  memPct: number;
+  netIO: string;
+  blockIO: string;
+  pids: number;
+  uptime: string;
 }
 
 interface ImageInfo {
@@ -37,6 +44,18 @@ interface ImageInfo {
   size: number;
   created: number;
   containers: number;
+}
+
+interface ServiceInfo {
+  name: string;
+  description: string;
+  active: string;
+  sub: string;
+  enabled: boolean;
+  uptime: string;
+  pid: number;
+  memBytes: number;
+  cpuPct: number;
 }
 
 interface Stats {
@@ -50,6 +69,7 @@ interface Stats {
   topMemory: { name: string; service?: string; pid: number; cpu: number; mem: number; memBytes: number }[];
   containers: ContainerInfo[];
   images: ImageInfo[];
+  services: ServiceInfo[];
   history: { cpu: number[]; memory: number[]; netRx: number[]; netTx: number[] };
   authEnabled: boolean;
   authenticated: boolean;
@@ -250,6 +270,16 @@ export default function Dashboard() {
   const [containerLoading, setContainerLoading] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState<string | null>(null);
   const [pruneLoading, setPruneLoading] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('netra_theme') !== 'light';
+    }
+    return true;
+  });
+  const [showLogs, setShowLogs] = useState<string | null>(null);
+  const [logsData, setLogsData] = useState<string[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [serviceLoading, setServiceLoading] = useState<string | null>(null);
 
   const prevNetRef = useRef<{ rx: number; tx: number; ts: number } | null>(null);
 
@@ -392,6 +422,44 @@ export default function Dashboard() {
     finally { setPruneLoading(false); }
   }, [fetchStats]);
 
+  const handleFetchLogs = useCallback(async (id: string) => {
+    setShowLogs(id);
+    setLogsLoading(true);
+    setLogsData([]);
+    try {
+      const res = await fetch(`/api/container/logs/${id}?tail=200`);
+      const data = await res.json();
+      if (data.ok) {
+        setLogsData(data.logs.map((l: { line: string }) => l.line));
+      }
+    } catch { /* ignore */ }
+    finally { setLogsLoading(false); }
+  }, []);
+
+  const handleServiceAction = useCallback(async (name: string, action: string) => {
+    if (!authed) {
+      setShowLogin(true);
+      setLoginErr('');
+      setLoginPwd('');
+      return;
+    }
+    if (!confirm(`${action} service ${name}?`)) return;
+    setServiceLoading(`${action}-${name}`);
+    try {
+      const res = await fetch(`/api/service/${action}/${name}`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) alert(data.error || `Failed to ${action}`);
+      fetchStats();
+    } catch { alert('Network error'); }
+    finally { setServiceLoading(null); }
+  }, [authed, fetchStats, setShowLogin, setLoginErr, setLoginPwd]);
+
+  // Theme toggle
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    localStorage.setItem('netra_theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
+
   // ── Loading ──────────────────────────────────────────
   if (loading || !stats) {
     return (
@@ -438,6 +506,13 @@ export default function Dashboard() {
             <span className="text-xs text-muted-foreground hidden sm:block">
               {lastUpdate.toLocaleTimeString('th-TH', { hour12: false })}
             </span>
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="inline-flex items-center justify-center size-7 rounded-lg border border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-white transition-colors"
+              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
             {stats.authEnabled && (
               authed ? (
                 <button
@@ -729,9 +804,10 @@ export default function Dashboard() {
                       <TableHead>Name</TableHead>
                       <TableHead>Image</TableHead>
                       <TableHead>State</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>CPU</TableHead>
+                      <TableHead>MEM</TableHead>
+                      <TableHead>Net I/O</TableHead>
                       <TableHead>Ports</TableHead>
-                      <TableHead>Memory</TableHead>
                       <TableHead className="text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -745,9 +821,10 @@ export default function Dashboard() {
                             {c.state}
                           </span>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{c.status}</TableCell>
+                        <TableCell className={`text-xs font-mono ${c.cpu > 50 ? 'text-amber-400' : 'text-muted-foreground'}`}>{c.state === 'running' ? `${c.cpu}%` : '—'}</TableCell>
+                        <TableCell className="text-xs font-mono">{c.state === 'running' ? (c.memUsage || '—') : '—'}</TableCell>
+                        <TableCell className="text-xs font-mono text-muted-foreground">{c.state === 'running' ? (c.netIO || '—') : '—'}</TableCell>
                         <TableCell className="text-xs text-muted-foreground font-mono">{c.ports || '—'}</TableCell>
-                        <TableCell className="text-xs font-mono">{c.memLimit || '—'}</TableCell>
                         <TableCell>
                           <div className="flex items-center justify-center gap-1">
                             {c.state !== 'running' && (
@@ -786,6 +863,13 @@ export default function Dashboard() {
                                 onClick={() => handleContainerAction(c.id, 'remove')}
                               />
                             )}
+                            <ActionBtn
+                              icon={FileText}
+                              variant="restart"
+                              title="View logs"
+                              disabled={logsLoading && showLogs === c.id}
+                              onClick={() => handleFetchLogs(c.id)}
+                            />
                           </div>
                         </TableCell>
                       </TableRow>
@@ -936,6 +1020,106 @@ export default function Dashboard() {
                   {loginLoading ? 'Verifying...' : 'Login'}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Systemd Services ────────────────────────── */}
+        <Card className="fade-in-up" style={{ animationDelay: '0.8s' }}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm uppercase tracking-wider inline-flex items-center gap-2">
+                  <Wrench className="h-4 w-4" aria-hidden="true" /> Systemd Services
+                </CardTitle>
+                <CardDescription>Service status and management</CardDescription>
+              </div>
+              <Badge variant="secondary">{stats.services?.length ?? 0} services</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(!stats.services || stats.services.length === 0) ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No services found. Only available on Linux with systemd.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>State</TableHead>
+                      <TableHead>Enabled</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stats.services.map((s, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-mono text-xs font-medium">{s.name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]" title={s.description}>{s.description}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${s.active === 'active' ? 'bg-emerald-500/10 text-emerald-400' : s.active === 'failed' ? 'bg-red-500/10 text-red-400' : 'bg-muted text-muted-foreground'}`}>
+                            {s.active} ({s.sub})
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {s.enabled ? (
+                            <span className="text-xs text-emerald-400">Enabled</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Disabled</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-1">
+                            <ActionBtn icon={RotateCw} variant="restart" title="Restart" disabled={serviceLoading === `restart-${s.name}`} onClick={() => handleServiceAction(s.name, 'restart')} />
+                            {s.active === 'active' ? (
+                              <ActionBtn icon={Square} variant="stop" title="Stop" disabled={serviceLoading === `stop-${s.name}`} onClick={() => handleServiceAction(s.name, 'stop')} />
+                            ) : (
+                              <ActionBtn icon={Play} variant="start" title="Start" disabled={serviceLoading === `start-${s.name}`} onClick={() => handleServiceAction(s.name, 'start')} />
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Logs Modal ──────────────────────────────── */}
+        {showLogs && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="relative w-full max-w-3xl mx-4 rounded-xl border border-white/10 bg-card p-6 shadow-2xl max-h-[80vh] flex flex-col">
+              <button
+                onClick={() => setShowLogs(null)}
+                className="absolute top-3 right-3 text-muted-foreground hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center size-9 rounded-lg bg-blue-500/10 text-blue-400">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold">Container Logs</h2>
+                  <p className="text-xs text-muted-foreground">{showLogs}</p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto rounded-lg bg-black/50 p-3 font-mono text-xs leading-relaxed min-h-[300px]">
+                {logsLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <span className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : logsData.length === 0 ? (
+                  <p className="text-muted-foreground text-center">No logs available.</p>
+                ) : (
+                  logsData.map((line, i) => (
+                    <div key={i} className="whitespace-pre-wrap break-all hover:bg-white/5 px-1 rounded">{line}</div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}

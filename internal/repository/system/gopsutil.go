@@ -302,6 +302,9 @@ func (r *gopsutilRepository) GetContainers() ([]domain.ContainerInfo, error) {
 	// Get memory limits via podman inspect
 	memLimits := getContainerMemLimits()
 
+	// Get live stats for running containers
+	liveStats := r.GetContainerStats()
+
 	result := make([]domain.ContainerInfo, 0, len(raw))
 	for _, c := range raw {
 		name := ""
@@ -314,7 +317,7 @@ func (r *gopsutilRepository) GetContainers() ([]domain.ContainerInfo, error) {
 				portStrs = append(portStrs, fmt.Sprintf("%s:%d", p.HostIP, p.HostPort))
 			}
 		}
-		result = append(result, domain.ContainerInfo{
+		ci := domain.ContainerInfo{
 			ID:       c.ID[:12],
 			Name:     name,
 			Image:    c.Image,
@@ -323,7 +326,18 @@ func (r *gopsutilRepository) GetContainers() ([]domain.ContainerInfo, error) {
 			Ports:    strings.Join(portStrs, ", "),
 			Created:  c.Created,
 			MemLimit: memLimits[c.ID],
-		})
+		}
+		// Merge live stats if available
+		if st, ok := liveStats[c.ID[:12]]; ok {
+			ci.CPU = st.CPU
+			ci.MemUsage = st.MemUsage
+			ci.MemPct = st.MemPct
+			ci.NetIO = st.NetIO
+			ci.BlockIO = st.BlockIO
+			ci.PIDs = st.PIDs
+			ci.Uptime = st.Uptime
+		}
+		result = append(result, ci)
 	}
 	return result, nil
 }
@@ -452,6 +466,126 @@ func (r *gopsutilRepository) PruneImages() (int, error) {
 
 	_ = out
 	return beforeCount - afterCount, nil
+}
+
+// ── Container stats ──────────────────────────────────
+
+func (r *gopsutilRepository) GetContainerStats() map[string]domain.ContainerInfo {
+	out, err := exec.Command("podman", "stats", "--no-stream", "--format", "json").Output()
+	if err != nil {
+		return nil
+	}
+	var raw []struct {
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		CPU      float64 `json:"cpu"`
+		MemUsage string  `json:"mem_usage"`
+		MemPct   float64 `json:"mem_percent"`
+		NetIO    string  `json:"net_io"`
+		BlockIO  string  `json:"block_io"`
+		PIDs     int     `json:"pids"`
+		Uptime   string  `json:"uptime"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil
+	}
+	m := make(map[string]domain.ContainerInfo)
+	for _, s := range raw {
+		m[s.ID[:12]] = domain.ContainerInfo{
+			CPU:      s.CPU,
+			MemUsage: s.MemUsage,
+			MemPct:   s.MemPct,
+			NetIO:    s.NetIO,
+			BlockIO:  s.BlockIO,
+			PIDs:     s.PIDs,
+			Uptime:   s.Uptime,
+		}
+	}
+	return m
+}
+
+// ── Container logs ────────────────────────────────────
+
+func (r *gopsutilRepository) GetContainerLogs(id string, tail int) ([]domain.ContainerLog, error) {
+	if tail <= 0 {
+		tail = 100
+	}
+	out, err := exec.Command("podman", "logs", "--tail", strconv.Itoa(tail), id).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("podman logs %s failed: %s", id, strings.TrimSpace(string(out)))
+	}
+	var logs []domain.ContainerLog
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		logType := "stdout"
+		logs = append(logs, domain.ContainerLog{Line: line, Type: logType})
+	}
+	return logs, nil
+}
+
+// ── Systemd services ──────────────────────────────────
+
+func (r *gopsutilRepository) GetServices() ([]domain.ServiceInfo, error) {
+	out, err := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--plain").Output()
+	if err != nil {
+		return nil, nil // not linux or no systemctl
+	}
+	var services []domain.ServiceInfo
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		name := strings.TrimSuffix(fields[0], ".service")
+		active := fields[2]
+		sub := fields[3]
+		if active == "inactive" && sub == "dead" {
+			continue // skip totally inactive
+		}
+		// Get description and enabled status
+		desc, enabled := getServiceDetails(name)
+		services = append(services, domain.ServiceInfo{
+			Name:        name,
+			Description: desc,
+			Active:      active,
+			Sub:         sub,
+			Enabled:     enabled,
+		})
+	}
+	return services, nil
+}
+
+func getServiceDetails(name string) (string, bool) {
+	out, _ := exec.Command("systemctl", "show", name+".service", "--property=Description,UnitFileState").Output()
+	var desc string
+	var enabled bool
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Description=") {
+			desc = strings.TrimPrefix(line, "Description=")
+		}
+		if strings.HasPrefix(line, "UnitFileState=") {
+			val := strings.TrimPrefix(line, "UnitFileState=")
+			enabled = val == "enabled"
+		}
+	}
+	return desc, enabled
+}
+
+func (r *gopsutilRepository) ServiceAction(name string, action string) error {
+	switch action {
+	case "start", "stop", "restart":
+	default:
+		return fmt.Errorf("invalid service action: %s", action)
+	}
+	cmd := exec.Command("systemctl", action, name+".service")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl %s %s failed: %s", action, name, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // ── helpers ────────────────────────────────────────────
