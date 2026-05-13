@@ -31,6 +31,11 @@ RUN apk add --no-cache ca-certificates tzdata podman
 
 COPY --from=backend /netra-monitor /usr/local/bin/netra-monitor
 
+# gopsutil reads from these paths. Override at runtime when mounting host /proc and /sys.
+ENV HOST_PROC=/host_proc
+ENV HOST_SYS=/host_sys
+ENV HOST_ETC=/host_etc
+
 # Must run as root to access host podman socket and system info
 EXPOSE 20265
 

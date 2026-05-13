@@ -37,16 +37,18 @@ podman run -d \
   --name netra-monitor \
   --restart unless-stopped \
   --pid=host \
-  -p 20265:20265 \
+  --network=host \
   -e AUTH_PASSWORD=mys3cret \
   -e CONTAINER_HOST=unix:///run/podman/podman.sock \
   -v /run/user/$(id -u)/podman/podman.sock:/run/podman/podman.sock \
   -v /proc:/host_proc:ro \
   -v /sys:/host_sys:ro \
-  -v /etc/os-release:/etc/os-release:ro \
+  -v /etc:/host_etc:ro \
   -v /var/log:/var/log:ro \
   ghcr.io/watchakorn-18k/netra-monitor:latest
 ```
+
+> **Note:** `--network=host` makes the app see real host network stats and listen directly on port 20265 (no `-p` needed).
 
 <details>
 <summary>🐳 Podman (Rootful)</summary>
@@ -56,13 +58,13 @@ podman run -d \
   --name netra-monitor \
   --restart unless-stopped \
   --pid=host \
-  -p 20265:20265 \
+  --network=host \
   -e AUTH_PASSWORD=mys3cret \
   -e CONTAINER_HOST=unix:///run/podman/podman.sock \
   -v /run/podman/podman.sock:/run/podman/podman.sock \
   -v /proc:/host_proc:ro \
   -v /sys:/host_sys:ro \
-  -v /etc/os-release:/etc/os-release:ro \
+  -v /etc:/host_etc:ro \
   -v /var/log:/var/log:ro \
   ghcr.io/watchakorn-18k/netra-monitor:latest
 ```
@@ -76,13 +78,13 @@ docker run -d \
   --name netra-monitor \
   --restart unless-stopped \
   --pid=host \
-  -p 20265:20265 \
+  --network=host \
   -e AUTH_PASSWORD=mys3cret \
   --cap-add SYS_PTRACE \
   -v /run/docker.sock:/run/docker.sock \
   -v /proc:/host_proc:ro \
   -v /sys:/host_sys:ro \
-  -v /etc/os-release:/etc/os-release:ro \
+  -v /etc:/host_etc:ro \
   -v /var/log:/var/log:ro \
   ghcr.io/watchakorn-18k/netra-monitor:latest
 ```
@@ -104,13 +106,13 @@ ExecStartPre=-/usr/bin/podman rm -f netra-monitor
 ExecStart=/usr/bin/podman run \
   --name netra-monitor \
   --pid=host \
-  -p 20265:20265 \
+  --network=host \
   -e AUTH_PASSWORD=mys3cret \
   -e CONTAINER_HOST=unix:///run/podman/podman.sock \
   -v /run/user/%U/podman/podman.sock:/run/podman/podman.sock \
   -v /proc:/host_proc:ro \
   -v /sys:/host_sys:ro \
-  -v /etc/os-release:/etc/os-release:ro \
+  -v /etc:/host_etc:ro \
   -v /var/log:/var/log:ro \
   --restart unless-stopped \
   ghcr.io/watchakorn-18k/netra-monitor:latest
@@ -143,9 +145,10 @@ Since Netra Monitor runs **inside a container**, it needs access to the host to 
 | Flag / Mount | Purpose |
 |---|---|
 | `--pid=host` | See host processes (top processes, kill/restart) |
+| `--network=host` | See real host network interfaces & traffic stats |
 | `-v /proc:/host_proc:ro` | Read host CPU, RAM, Swap stats |
 | `-v /sys:/host_sys:ro` | Read host hardware & disk info |
-| `-v /etc/os-release:ro` | Show correct OS name & version |
+| `-v /etc:/host_etc:ro` | Show correct OS name, version, hostname |
 | `-v /var/log:/var/log:ro` | File browser can read host logs |
 | `-v .../podman.sock` | Manage Podman containers & images |
 | `-e CONTAINER_HOST=...` | Tell podman client where the socket is |
@@ -234,7 +237,7 @@ Open `http://localhost:3000` for dev. Production binary defaults to port `20265`
 |--------|-------|
 | Binary size | ~9 MB |
 | RAM usage | ~10-15 MB |
-| Docker image | ~15 MB (Alpine) |
+| Docker image | ~120 MB (Alpine + podman client) |
 
 ## Tech Stack
 

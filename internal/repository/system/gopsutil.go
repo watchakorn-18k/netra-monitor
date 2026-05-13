@@ -990,8 +990,16 @@ func getLaunchdMap() map[int32]string {
 
 var systemdUnitRE = regexp.MustCompile(`([A-Za-z0-9_.@:+\\-]+\.(service|scope|slice))`)
 
+func hostProc(parts ...string) string {
+	base := os.Getenv("HOST_PROC")
+	if base == "" {
+		base = "/proc"
+	}
+	return base + strings.Join(parts, "")
+}
+
 func detectSystemdUnit(pid int32) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	data, err := os.ReadFile(fmt.Sprintf("%s/%d/cgroup", hostProc(), pid))
 	if err != nil {
 		return ""
 	}
