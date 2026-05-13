@@ -1156,6 +1156,7 @@ export default function Dashboard() {
         )}
 
         {/* ── Systemd Services ────────────────────────── */}
+        {stats.services && stats.services.length > 0 && (
         <Card className="fade-in-up" style={{ animationDelay: '0.8s' }}>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -1218,6 +1219,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* ── Logs Modal ──────────────────────────────── */}
         {showLogs && (
@@ -1256,6 +1258,7 @@ export default function Dashboard() {
         )}
 
         {/* ── SSL Certificates ─────────────────────────── */}
+        {stats.sslCerts && stats.sslCerts.length > 0 && (
         <Card className="fade-in-up" style={{ animationDelay: '0.9s' }}>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -1309,8 +1312,10 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* ── Compose Stacks ──────────────────────────────── */}
+        {stats.stacks && stats.stacks.length > 0 && (
         <Card className="fade-in-up" style={{ animationDelay: '1.0s' }}>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -1362,6 +1367,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* ── Terminal Modal ────────────────────────────── */}
         {showTerminal && (
