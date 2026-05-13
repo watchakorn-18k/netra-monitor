@@ -30,20 +30,104 @@ Real-time VPS resource monitoring dashboard — Go backend + Next.js frontend, s
 
 ## Quick Start
 
-### Docker
+### Podman (Rootless) — Recommended for VPS
+
+```bash
+podman run -d \
+  --name netra-monitor \
+  --restart unless-stopped \
+  --pid=host \
+  -p 20265:20265 \
+  -e AUTH_PASSWORD=mys3cret \
+  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+  -v /run/user/$(id -u)/podman/podman.sock:/run/podman/podman.sock \
+  -v /proc:/host_proc:ro \
+  -v /sys:/host_sys:ro \
+  -v /etc/os-release:/etc/os-release:ro \
+  -v /var/log:/var/log:ro \
+  ghcr.io/watchakorn-18k/netra-monitor:latest
+```
+
+<details>
+<summary>🐳 Podman (Rootful)</summary>
+
+```bash
+podman run -d \
+  --name netra-monitor \
+  --restart unless-stopped \
+  --pid=host \
+  -p 20265:20265 \
+  -e AUTH_PASSWORD=mys3cret \
+  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+  -v /run/podman/podman.sock:/run/podman/podman.sock \
+  -v /proc:/host_proc:ro \
+  -v /sys:/host_sys:ro \
+  -v /etc/os-release:/etc/os-release:ro \
+  -v /var/log:/var/log:ro \
+  ghcr.io/watchakorn-18k/netra-monitor:latest
+```
+</details>
+
+<details>
+<summary>🐳 Docker</summary>
 
 ```bash
 docker run -d \
   --name netra-monitor \
   --restart unless-stopped \
+  --pid=host \
   -p 20265:20265 \
   -e AUTH_PASSWORD=mys3cret \
   --cap-add SYS_PTRACE \
-  -v /run/podman/podman.sock:/run/podman/podman.sock:ro \
+  -v /run/docker.sock:/run/docker.sock \
+  -v /proc:/host_proc:ro \
+  -v /sys:/host_sys:ro \
+  -v /etc/os-release:/etc/os-release:ro \
+  -v /var/log:/var/log:ro \
   ghcr.io/watchakorn-18k/netra-monitor:latest
 ```
+</details>
 
-### Binary
+<details>
+<summary>⚙️ systemd service (auto-start on boot)</summary>
+
+Create `~/.config/systemd/user/container-netra-monitor.service`:
+
+```ini
+[Unit]
+Description=Netra Monitor Container
+After=podman.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/podman rm -f netra-monitor
+ExecStart=/usr/bin/podman run \
+  --name netra-monitor \
+  --pid=host \
+  -p 20265:20265 \
+  -e AUTH_PASSWORD=mys3cret \
+  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+  -v /run/user/%U/podman/podman.sock:/run/podman/podman.sock \
+  -v /proc:/host_proc:ro \
+  -v /sys:/host_sys:ro \
+  -v /etc/os-release:/etc/os-release:ro \
+  -v /var/log:/var/log:ro \
+  --restart unless-stopped \
+  ghcr.io/watchakorn-18k/netra-monitor:latest
+ExecStop=/usr/bin/podman stop -t 10 netra-monitor
+
+[Install]
+WantedBy=default.target
+```
+
+Then:
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now container-netra-monitor
+```
+</details>
+
+### Binary (bare metal)
 
 ```bash
 make build
@@ -51,6 +135,21 @@ AUTH_PASSWORD=mys3cret ./netra-monitor
 ```
 
 Open `http://your-vps-ip:20265`
+
+### Why the extra flags?
+
+Since Netra Monitor runs **inside a container**, it needs access to the host to collect metrics:
+
+| Flag / Mount | Purpose |
+|---|---|
+| `--pid=host` | See host processes (top processes, kill/restart) |
+| `-v /proc:/host_proc:ro` | Read host CPU, RAM, Swap stats |
+| `-v /sys:/host_sys:ro` | Read host hardware & disk info |
+| `-v /etc/os-release:ro` | Show correct OS name & version |
+| `-v /var/log:/var/log:ro` | File browser can read host logs |
+| `-v .../podman.sock` | Manage Podman containers & images |
+| `-e CONTAINER_HOST=...` | Tell podman client where the socket is |
+| `-e AUTH_PASSWORD=...` | Set login password for management actions |
 
 ## Auth System
 
@@ -124,6 +223,10 @@ Open `http://localhost:3000` for dev. Production binary defaults to port `20265`
 |------|---------|-------------|
 | `PORT` | `20265` | HTTP listen port |
 | `AUTH_PASSWORD` | `123456` | Password for management actions |
+| `CONTAINER_HOST` | — | Podman/Docker socket path (e.g. `unix:///run/podman/podman.sock`) |
+| `SSL_DOMAINS` | — | Comma-separated domains for SSL certificate expiry monitoring (e.g. `example.com,api.example.com`) |
+| `COMPOSE_DIR` | `/opt/stacks` | Directory to scan for compose stacks |
+| `UPTIME_URLS` | — | Comma-separated URLs for uptime health checks (e.g. `https://example.com,https://api.example.com/health`) |
 
 ## Performance
 
